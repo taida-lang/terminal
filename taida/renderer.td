@@ -115,8 +115,8 @@ _makeCellsLoop acc remaining fill =
 => :@[Str]
 
 _makeCellsAppend acc remaining fill =
-  _next <=[ Append[acc, fill]()
-  _makeCellsLoop(_next, remaining - 1, fill)
+  nextAcc <=[ Append[acc, fill]()
+  _makeCellsLoop(nextAcc, remaining - 1, fill)
 => :@[Str]
 
 // -- BufferNew --
@@ -131,9 +131,9 @@ BufferNew cols rows =
 => :@()
 
 _bufferNewInner cols rows =
-  _fill <= Cell
-  _cells <= _makeCellsLoop(@[_fill], cols * rows - 1, _fill)
-  ScreenBuffer(cols <= cols, rows <= rows, cells <= _cells, cursor_col <= 1, cursor_row <= 1, cursor_visible <= true)
+  fill <= Cell
+  cells <= _makeCellsLoop(@[fill], cols * rows - 1, fill)
+  ScreenBuffer(cols <= cols, rows <= rows, cells <= cells, cursor_col <= 1, cursor_row <= 1, cursor_visible <= true)
 => :@()
 
 // -- BufferResize --
@@ -147,13 +147,13 @@ BufferResize buf cols rows fill =
 => :@()
 
 _bufferResizeInner buf cols rows fill =
-  _fill <= Cell
-  _cells <= _makeCellsLoop(@[_fill], cols * rows - 1, _fill)
-  _cc <= | buf.cursor_col > cols |> cols
-         | _ |> buf.cursor_col
-  _cr <= | buf.cursor_row > rows |> rows
-         | _ |> buf.cursor_row
-  ScreenBuffer(cols <= cols, rows <= rows, cells <= _cells, cursor_col <= _cc, cursor_row <= _cr, cursor_visible <= buf.cursor_visible)
+  fillCell <= Cell
+  cells <= _makeCellsLoop(@[fillCell], cols * rows - 1, fillCell)
+  cc <= | buf.cursor_col > cols |> cols
+        | _ |> buf.cursor_col
+  cr <= | buf.cursor_row > rows |> rows
+        | _ |> buf.cursor_row
+  ScreenBuffer(cols <= cols, rows <= rows, cells <= cells, cursor_col <= cc, cursor_row <= cr, cursor_visible <= buf.cursor_visible)
 => :@()
 
 // -- BufferClear --
@@ -161,8 +161,8 @@ _bufferResizeInner buf cols rows fill =
 ///@ Purpose: Clear the entire buffer with a fill cell
 ///@ Since: a.6
 BufferClear buf fill =
-  _cells <= _makeCellsLoop(@[fill], buf.cols * buf.rows - 1, fill)
-  ScreenBuffer(cols <= buf.cols, rows <= buf.rows, cells <= _cells, cursor_col <= buf.cursor_col, cursor_row <= buf.cursor_row, cursor_visible <= buf.cursor_visible)
+  cells <= _makeCellsLoop(@[fill], buf.cols * buf.rows - 1, fill)
+  ScreenBuffer(cols <= buf.cols, rows <= buf.rows, cells <= cells, cursor_col <= buf.cursor_col, cursor_row <= buf.cursor_row, cursor_visible <= buf.cursor_visible)
 => :@()
 
 // -- BufferPut --
@@ -212,10 +212,10 @@ RenderFull buf =
 => :Str
 
 _renderFullInner buf =
-  _out <= CursorHide()
-  _withCursor <= _out + CursorMoveTo(buf.cursor_col, buf.cursor_row)
-  | buf.cursor_visible == true |> _withCursor + CursorShow()
-  | _ |> _withCursor
+  out <= CursorHide()
+  withCursor <= out + CursorMoveTo(buf.cursor_col, buf.cursor_row)
+  | buf.cursor_visible == true |> withCursor + CursorShow()
+  | _ |> withCursor
 => :Str
 
 // -- BufferDiff --

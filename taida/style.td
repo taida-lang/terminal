@@ -121,26 +121,26 @@ ResetStyle =
 Stylize text opts =
   // Pre-evaluate all function results to avoid the interpreter
   // condition-call premature-return limitation.
-  _fgResult <= _safeFgCode(opts.fg)
-  _bgResult <= _safeBgCode(opts.bg)
-  _c1 <= _fgResult
-  _c2pre <= _appendCode(_c1, _bgResult)
-  _c2 <= | opts.bg == "" |> _c1
-         | _ |> _c2pre
-  _c3pre <= _appendCode(_c2, "1")
-  _c3 <= | opts.bold == false |> _c2
-         | _ |> _c3pre
-  _c4pre <= _appendCode(_c3, "2")
-  _c4 <= | opts.dim == false |> _c3
-         | _ |> _c4pre
-  _c5pre <= _appendCode(_c4, "3")
-  _c5 <= | opts.italic == false |> _c4
-         | _ |> _c5pre
-  _c6pre <= _appendCode(_c5, "4")
-  _c6 <= | opts.underline == false |> _c5
-         | _ |> _c6pre
-  | _c6 == "" |> text
-  | _ |> "\x1b[" + _c6 + "m" + text + "\x1b[0m"
+  fgResult <= _safeFgCode(opts.fg)
+  bgResult <= _safeBgCode(opts.bg)
+  c1 <= fgResult
+  c2pre <= _appendCode(c1, bgResult)
+  c2 <= | opts.bg == "" |> c1
+        | _ |> c2pre
+  c3pre <= _appendCode(c2, "1")
+  c3 <= | opts.bold == false |> c2
+        | _ |> c3pre
+  c4pre <= _appendCode(c3, "2")
+  c4 <= | opts.dim == false |> c3
+        | _ |> c4pre
+  c5pre <= _appendCode(c4, "3")
+  c5 <= | opts.italic == false |> c4
+        | _ |> c5pre
+  c6pre <= _appendCode(c5, "4")
+  c6 <= | opts.underline == false |> c5
+        | _ |> c6pre
+  | c6 == "" |> text
+  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
 => :Str
 
 // -- Color256 / ColorRgb (TM-6e) --
@@ -246,32 +246,32 @@ _validateRgbB color label prev =
 ///@ Since: a.6
 Stylize256 text opts =
   // Validate indices first (these throw on invalid values)
-  _vfg <= _validate256(opts.fg.index, "foreground")
-  _vbg <= _validate256(opts.bg.index, "background")
+  vfg <= _validate256(opts.fg.index, "foreground")
+  vbg <= _validate256(opts.bg.index, "background")
   // Pre-evaluate results
-  _fgResult <= _safeFg256Code(opts.fg.index)
-  _bgResult <= _safeBg256Code(opts.bg.index)
-  _fgSkip <= opts.fg.index == -1
-  _bgSkip <= opts.bg.index == -1
+  fgResult <= _safeFg256Code(opts.fg.index)
+  bgResult <= _safeBg256Code(opts.bg.index)
+  fgSkip <= opts.fg.index == -1
+  bgSkip <= opts.bg.index == -1
   // Build SGR parameter codes
-  _c1 <= _fgResult
-  _c2pre <= _appendCode(_c1, _bgResult)
-  _c2 <= | _bgSkip == true |> _c1
-         | _ |> _c2pre
-  _c3pre <= _appendCode(_c2, "1")
-  _c3 <= | opts.bold == false |> _c2
-         | _ |> _c3pre
-  _c4pre <= _appendCode(_c3, "2")
-  _c4 <= | opts.dim == false |> _c3
-         | _ |> _c4pre
-  _c5pre <= _appendCode(_c4, "3")
-  _c5 <= | opts.italic == false |> _c4
-         | _ |> _c5pre
-  _c6pre <= _appendCode(_c5, "4")
-  _c6 <= | opts.underline == false |> _c5
-         | _ |> _c6pre
-  | _c6 == "" |> text
-  | _ |> "\x1b[" + _c6 + "m" + text + "\x1b[0m"
+  c1 <= fgResult
+  c2pre <= _appendCode(c1, bgResult)
+  c2 <= | bgSkip == true |> c1
+        | _ |> c2pre
+  c3pre <= _appendCode(c2, "1")
+  c3 <= | opts.bold == false |> c2
+        | _ |> c3pre
+  c4pre <= _appendCode(c3, "2")
+  c4 <= | opts.dim == false |> c3
+        | _ |> c4pre
+  c5pre <= _appendCode(c4, "3")
+  c5 <= | opts.italic == false |> c4
+        | _ |> c5pre
+  c6pre <= _appendCode(c5, "4")
+  c6 <= | opts.underline == false |> c5
+        | _ |> c6pre
+  | c6 == "" |> text
+  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
 => :Str
 
 // -- StylizeRgb (TM-6e) --
@@ -286,36 +286,36 @@ Stylize256 text opts =
 ///@ Since: a.6
 StylizeRgb text opts =
   // Validate RGB components
-  _vfr <= _validateRgbFull(opts.fg, "foreground")
-  _vfg2 <= _validateRgbG(opts.fg, "foreground", _vfr)
-  _vfb <= _validateRgbB(opts.fg, "foreground", _vfg2)
-  _vbr <= _validateRgbFull(opts.bg, "background")
-  _vbg2 <= _validateRgbG(opts.bg, "background", _vbr)
-  _vbb <= _validateRgbB(opts.bg, "background", _vbg2)
+  vfr <= _validateRgbFull(opts.fg, "foreground")
+  vfg2 <= _validateRgbG(opts.fg, "foreground", vfr)
+  vfb <= _validateRgbB(opts.fg, "foreground", vfg2)
+  vbr <= _validateRgbFull(opts.bg, "background")
+  vbg2 <= _validateRgbG(opts.bg, "background", vbr)
+  vbb <= _validateRgbB(opts.bg, "background", vbg2)
   // Pre-evaluate results
-  _fgSkip <= _isNoColorRgb(opts.fg)
-  _bgSkip <= _isNoColorRgb(opts.bg)
-  _fgResult <= _safeFgRgbCode(opts.fg)
-  _bgResult <= _safeBgRgbCode(opts.bg)
+  fgSkip <= _isNoColorRgb(opts.fg)
+  bgSkip <= _isNoColorRgb(opts.bg)
+  fgResult <= _safeFgRgbCode(opts.fg)
+  bgResult <= _safeBgRgbCode(opts.bg)
   // Build SGR parameter codes
-  _c1 <= _fgResult
-  _c2pre <= _appendCode(_c1, _bgResult)
-  _c2 <= | _bgSkip == true |> _c1
-         | _ |> _c2pre
-  _c3pre <= _appendCode(_c2, "1")
-  _c3 <= | opts.bold == false |> _c2
-         | _ |> _c3pre
-  _c4pre <= _appendCode(_c3, "2")
-  _c4 <= | opts.dim == false |> _c3
-         | _ |> _c4pre
-  _c5pre <= _appendCode(_c4, "3")
-  _c5 <= | opts.italic == false |> _c4
-         | _ |> _c5pre
-  _c6pre <= _appendCode(_c5, "4")
-  _c6 <= | opts.underline == false |> _c5
-         | _ |> _c6pre
-  | _c6 == "" |> text
-  | _ |> "\x1b[" + _c6 + "m" + text + "\x1b[0m"
+  c1 <= fgResult
+  c2pre <= _appendCode(c1, bgResult)
+  c2 <= | bgSkip == true |> c1
+        | _ |> c2pre
+  c3pre <= _appendCode(c2, "1")
+  c3 <= | opts.bold == false |> c2
+        | _ |> c3pre
+  c4pre <= _appendCode(c3, "2")
+  c4 <= | opts.dim == false |> c3
+        | _ |> c4pre
+  c5pre <= _appendCode(c4, "3")
+  c5 <= | opts.italic == false |> c4
+        | _ |> c5pre
+  c6pre <= _appendCode(c5, "4")
+  c6 <= | opts.underline == false |> c5
+        | _ |> c6pre
+  | c6 == "" |> text
+  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
 => :Str
 
 <<< @(Color, ResetStyle, Stylize, Color256, ColorRgb, Stylize256, StylizeRgb)

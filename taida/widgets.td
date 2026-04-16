@@ -34,10 +34,10 @@ SpinnerNext state =
 => :@()
 
 _spinnerNextInner state =
-  _inc <= state.frame + 1
-  _divResult <=[ Div[_inc, _SPINNER_FRAME_COUNT]()
-  _nextFrame <= _inc - _divResult * _SPINNER_FRAME_COUNT
-  SpinnerState(frame <= _nextFrame, label <= state.label, done <= state.done)
+  inc <= state.frame + 1
+  divResult <=[ Div[inc, _SPINNER_FRAME_COUNT]()
+  nextFrame <= inc - divResult * _SPINNER_FRAME_COUNT
+  SpinnerState(frame <= nextFrame, label <= state.label, done <= state.done)
 => :@()
 
 ///@ Purpose: Render the spinner as a display string
@@ -53,9 +53,9 @@ _spinnerDoneText state =
 => :Str
 
 _spinnerActiveText state =
-  _SPINNER_FRAMES.get(state.frame) ]=> _frameChar
-  | state.label == "" |> _frameChar
-  | _ |> _frameChar + " " + state.label
+  _SPINNER_FRAMES.get(state.frame) ]=> frameChar
+  | state.label == "" |> frameChar
+  | _ |> frameChar + " " + state.label
 => :Str
 
 // -- Progress Bar --
@@ -80,19 +80,19 @@ ProgressBar current total opts =
 => :Str
 
 _progressBarInner current total opts =
-  _clamped <= | current > total |> total
-              | _ |> current
-  _barWidth <= | opts.width < 1 |> 1
-               | _ |> opts.width
-  _filled <=[ Div[_clamped * _barWidth, total]()
-  _empty <= _barWidth - _filled
-  _fillStr <= _repeatStr(opts.complete_char, _filled)
-  _emptyStr <= _repeatStr(opts.incomplete_char, _empty)
-  _bar <= _fillStr + _emptyStr
-  _withLeft <= | opts.left_label == "" |> _bar
-               | _ |> opts.left_label + " " + _bar
-  | opts.right_label == "" |> _withLeft
-  | _ |> _withLeft + " " + opts.right_label
+  clamped <= | current > total |> total
+             | _ |> current
+  barWidth <= | opts.width < 1 |> 1
+              | _ |> opts.width
+  filled <=[ Div[clamped * barWidth, total]()
+  empty <= barWidth - filled
+  fillStr <= _repeatStr(opts.complete_char, filled)
+  emptyStr <= _repeatStr(opts.incomplete_char, empty)
+  bar <= fillStr + emptyStr
+  withLeft <= | opts.left_label == "" |> bar
+              | _ |> opts.left_label + " " + bar
+  | opts.right_label == "" |> withLeft
+  | _ |> withLeft + " " + opts.right_label
 => :Str
 
 _repeatStr ch count =
@@ -115,18 +115,18 @@ StatusLine left right width =
 => :Str
 
 _statusLineInner left right width =
-  _leftW <= DisplayWidth(left)
-  _rightW <= DisplayWidth(right)
-  _gap <= width - _leftW - _rightW
-  | _gap > 0 |> left + _repeatStr(" ", _gap) + right
-  | _gap == 0 |> left + right
-  | _ |> _statusLineTruncate(left, right, width, _rightW)
+  leftW <= DisplayWidth(left)
+  rightW <= DisplayWidth(right)
+  gap <= width - leftW - rightW
+  | gap > 0 |> left + _repeatStr(" ", gap) + right
+  | gap == 0 |> left + right
+  | _ |> _statusLineTruncate(left, right, width, rightW)
 => :Str
 
 _statusLineTruncate left right width rightW =
-  _avail <= width - rightW
-  | _avail < 1 |> TruncateWidth(right, width)
-  | _ |> TruncateWidth(left, _avail) + right
+  avail <= width - rightW
+  | avail < 1 |> TruncateWidth(right, width)
+  | _ |> TruncateWidth(left, avail) + right
 => :Str
 
 <<< @(SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
