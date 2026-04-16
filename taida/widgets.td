@@ -29,8 +29,7 @@ SpinnerState <= @(
 ///@ Purpose: Advance the spinner to the next frame
 ///@ Since: a.7
 SpinnerNext state =
-  | state.done == true |> state
-  | _ |> _spinnerNextInner(state)
+  If[state.done == true, state, _spinnerNextInner(state)]()
 => :@()
 
 _spinnerNextInner state =
@@ -43,19 +42,16 @@ _spinnerNextInner state =
 ///@ Purpose: Render the spinner as a display string
 ///@ Since: a.7
 SpinnerRender state =
-  | state.done == true |> _spinnerDoneText(state)
-  | _ |> _spinnerActiveText(state)
+  If[state.done == true, _spinnerDoneText(state), _spinnerActiveText(state)]()
 => :Str
 
 _spinnerDoneText state =
-  | state.label == "" |> "v"
-  | _ |> "v " + state.label
+  If[state.label == "", "v", "v " + state.label]()
 => :Str
 
 _spinnerActiveText state =
   _SPINNER_FRAMES.get(state.frame) ]=> frameChar
-  | state.label == "" |> frameChar
-  | _ |> frameChar + " " + state.label
+  If[state.label == "", frameChar, frameChar + " " + state.label]()
 => :Str
 
 // -- Progress Bar --
@@ -80,24 +76,19 @@ ProgressBar current total opts =
 => :Str
 
 _progressBarInner current total opts =
-  clamped <= | current > total |> total
-             | _ |> current
-  barWidth <= | opts.width < 1 |> 1
-              | _ |> opts.width
+  clamped <= If[current > total, total, current]()
+  barWidth <= If[opts.width < 1, 1, opts.width]()
   filled <=[ Div[clamped * barWidth, total]()
   empty <= barWidth - filled
   fillStr <= _repeatStr(opts.complete_char, filled)
   emptyStr <= _repeatStr(opts.incomplete_char, empty)
   bar <= fillStr + emptyStr
-  withLeft <= | opts.left_label == "" |> bar
-              | _ |> opts.left_label + " " + bar
-  | opts.right_label == "" |> withLeft
-  | _ |> withLeft + " " + opts.right_label
+  withLeft <= If[opts.left_label == "", bar, opts.left_label + " " + bar]()
+  If[opts.right_label == "", withLeft, withLeft + " " + opts.right_label]()
 => :Str
 
 _repeatStr ch count =
-  | count < 1 |> ""
-  | _ |> _repeatLoop("", ch, count)
+  If[count < 1, "", _repeatLoop("", ch, count)]()
 => :Str
 
 _repeatLoop acc ch remaining =
@@ -110,8 +101,7 @@ _repeatLoop acc ch remaining =
 ///@ Purpose: Generate a status line with left/right text
 ///@ Since: a.7
 StatusLine left right width =
-  | width == 0 |> left + right
-  | _ |> _statusLineInner(left, right, width)
+  If[width == 0, left + right, _statusLineInner(left, right, width)]()
 => :Str
 
 _statusLineInner left right width =
@@ -125,8 +115,7 @@ _statusLineInner left right width =
 
 _statusLineTruncate left right width rightW =
   avail <= width - rightW
-  | avail < 1 |> TruncateWidth(right, width)
-  | _ |> TruncateWidth(left, avail) + right
+  If[avail < 1, TruncateWidth(right, width), TruncateWidth(left, avail) + right]()
 => :Str
 
 <<< @(SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)

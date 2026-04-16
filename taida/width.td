@@ -85,8 +85,7 @@ _isControl cp =
 ///@ Returns: @(width <= 0, mode <= WidthMode.Narrow)
 ///@ Since: a.6
 MeasureGrapheme text =
-  | text == "" |> @(width <= 0, mode <= WidthMode.Zero)
-  | _ |> _measureGraphemeInner(text)
+  If[text == "", @(width <= 0, mode <= WidthMode.Zero), _measureGraphemeInner(text)]()
 => :@(width: Int, mode: Int)
 
 _measureGraphemeInner text =
@@ -119,8 +118,7 @@ _dwCalc src idx acc len =
 => :Int
 
 DisplayWidth text =
-  | text == "" |> 0
-  | _ |> _dwCalc(text, 0, 0, text.length())
+  If[text == "", 0, _dwCalc(text, 0, 0, text.length())]()
 => :Int
 
 // -- NormalizeCellText --
@@ -142,13 +140,11 @@ _normLoop src idx acc len =
 => :Str
 
 _normFinish result =
-  | result == "" |> " "
-  | _ |> result
+  If[result == "", " ", result]()
 => :Str
 
 NormalizeCellText text =
-  | text == "" |> " "
-  | _ |> _normFinish(_normLoop(text, 0, "", text.length()))
+  If[text == "", " ", _normFinish(_normLoop(text, 0, "", text.length()))]()
 => :Str
 
 // -- TruncateWidth --

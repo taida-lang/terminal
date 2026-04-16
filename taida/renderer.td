@@ -214,8 +214,7 @@ RenderFull buf =
 _renderFullInner buf =
   out <= CursorHide()
   withCursor <= out + CursorMoveTo(buf.cursor_col, buf.cursor_row)
-  | buf.cursor_visible == true |> withCursor + CursorShow()
-  | _ |> withCursor
+  If[buf.cursor_visible == true, withCursor + CursorShow(), withCursor]()
 => :Str
 
 // -- BufferDiff --

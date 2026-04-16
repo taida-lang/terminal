@@ -102,13 +102,11 @@ _insertAt s pos ch =
 => :Str
 
 _deleteAt s pos =
-  | pos < 0 |> s
-  | _ |> _deleteAtInner(s, pos)
+  If[pos < 0, s, _deleteAtInner(s, pos)]()
 => :Str
 
 _deleteAtInner s pos =
-  | pos == s.length() |> s
-  | _ |> _deleteAtDo(s, pos)
+  If[pos == s.length(), s, _deleteAtDo(s, pos)]()
 => :Str
 
 _deleteAtDo s pos =
@@ -132,9 +130,7 @@ _makeStateHist text cursor state histIdx histSaved action =
 ///@ Purpose: Process one key event and return the next state
 ///@ Since: a.7
 LineEditorStep state key =
-  | state.action == LineEditorAction.Editing |>
-    _stepEditing(state, key)
-  | _ |> state
+  If[state.action == LineEditorAction.Editing, _stepEditing(state, key), state]()
 => :@()
 
 _stepEditing state key =
@@ -165,8 +161,7 @@ _stepArrowRight state =
 => :@()
 
 _stepBackspace state =
-  | state.cursor == 0 |> state
-  | _ |> _stepBackspaceDo(state)
+  If[state.cursor == 0, state, _stepBackspaceDo(state)]()
 => :@()
 
 _stepBackspaceDo state =
@@ -175,8 +170,7 @@ _stepBackspaceDo state =
 => :@()
 
 _stepDelete state =
-  | state.cursor == state.text.length() |> state
-  | _ |> _stepDeleteDo(state)
+  If[state.cursor == state.text.length(), state, _stepDeleteDo(state)]()
 => :@()
 
 _stepDeleteDo state =
@@ -185,8 +179,7 @@ _stepDeleteDo state =
 => :@()
 
 _stepInsertChar state key =
-  | key.text == "" |> state
-  | _ |> _stepInsertCharDo(state, key)
+  If[key.text == "", state, _stepInsertCharDo(state, key)]()
 => :@()
 
 _stepInsertCharDo state key =
@@ -195,8 +188,7 @@ _stepInsertCharDo state key =
 => :@()
 
 _stepHistoryPrev state =
-  | state.history.length() == 0 |> state
-  | _ |> _stepHistoryPrevDo(state)
+  If[state.history.length() == 0, state, _stepHistoryPrevDo(state)]()
 => :@()
 
 _stepHistoryPrevDo state =
@@ -210,8 +202,7 @@ _stepHistoryPrevDo state =
 => :@()
 
 _stepHistoryNext state =
-  | state.history_index == -1 |> state
-  | _ |> _stepHistoryNextDo(state)
+  If[state.history_index == -1, state, _stepHistoryNextDo(state)]()
 => :@()
 
 _stepHistoryNextDo state =

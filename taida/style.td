@@ -78,19 +78,16 @@ _bgCode name =
 // Safe wrappers that guard against empty-string calls (avoids
 // triggering error-throwing paths when no color is specified).
 _safeFgCode name =
-  | name == "" |> ""
-  | _ |> _fgCode(name)
+  If[name == "", "", _fgCode(name)]()
 => :Str
 
 _safeBgCode name =
-  | name == "" |> ""
-  | _ |> _bgCode(name)
+  If[name == "", "", _bgCode(name)]()
 => :Str
 
 // Helper: join a code to the accumulator with ";" separator
 _appendCode acc code =
-  | acc == "" |> code
-  | _ |> acc + ";" + code
+  If[acc == "", code, acc + ";" + code]()
 => :Str
 
 // -- ResetStyle (TM-2h) --
@@ -119,28 +116,13 @@ ResetStyle =
 ///@ AI-SideEffects: none
 ///@ Since: a.5
 Stylize text opts =
-  // Pre-evaluate all function results to avoid the interpreter
-  // condition-call premature-return limitation.
-  fgResult <= _safeFgCode(opts.fg)
-  bgResult <= _safeBgCode(opts.bg)
-  c1 <= fgResult
-  c2pre <= _appendCode(c1, bgResult)
-  c2 <= | opts.bg == "" |> c1
-        | _ |> c2pre
-  c3pre <= _appendCode(c2, "1")
-  c3 <= | opts.bold == false |> c2
-        | _ |> c3pre
-  c4pre <= _appendCode(c3, "2")
-  c4 <= | opts.dim == false |> c3
-        | _ |> c4pre
-  c5pre <= _appendCode(c4, "3")
-  c5 <= | opts.italic == false |> c4
-        | _ |> c5pre
-  c6pre <= _appendCode(c5, "4")
-  c6 <= | opts.underline == false |> c5
-        | _ |> c6pre
-  | c6 == "" |> text
-  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
+  c1 <= _safeFgCode(opts.fg)
+  c2 <= If[opts.bg == "", c1, _appendCode(c1, _safeBgCode(opts.bg))]()
+  c3 <= If[opts.bold == false, c2, _appendCode(c2, "1")]()
+  c4 <= If[opts.dim == false, c3, _appendCode(c3, "2")]()
+  c5 <= If[opts.italic == false, c4, _appendCode(c4, "3")]()
+  c6 <= If[opts.underline == false, c5, _appendCode(c5, "4")]()
+  If[c6 == "", text, "\x1b[" + c6 + "m" + text + "\x1b[0m"]()
 => :Str
 
 // -- Color256 / ColorRgb (TM-6e) --
@@ -173,13 +155,11 @@ _bg256Code index =
 => :Str
 
 _safeFg256Code index =
-  | index == -1 |> ""
-  | _ |> _fg256Code(index)
+  If[index == -1, "", _fg256Code(index)]()
 => :Str
 
 _safeBg256Code index =
-  | index == -1 |> ""
-  | _ |> _bg256Code(index)
+  If[index == -1, "", _bg256Code(index)]()
 => :Str
 
 // -- Internal: RGB SGR code builder --
@@ -209,29 +189,24 @@ _bgRgbCode color =
 => :Str
 
 _safeFgRgbCode color =
-  | _isNoColorRgb(color) == true |> ""
-  | _ |> _fgRgbCode(color)
+  If[_isNoColorRgb(color) == true, "", _fgRgbCode(color)]()
 => :Str
 
 _safeBgRgbCode color =
-  | _isNoColorRgb(color) == true |> ""
-  | _ |> _bgRgbCode(color)
+  If[_isNoColorRgb(color) == true, "", _bgRgbCode(color)]()
 => :Str
 
 // Validate all RGB components for a color (skip if all -1)
 _validateRgbFull color label =
-  | _isNoColorRgb(color) == true |> ""
-  | _ |> _validateRgbComponent(color.r, label, "r")
+  If[_isNoColorRgb(color) == true, "", _validateRgbComponent(color.r, label, "r")]()
 => :Str
 
 _validateRgbG color label prev =
-  | _isNoColorRgb(color) == true |> ""
-  | _ |> _validateRgbComponent(color.g, label, "g")
+  If[_isNoColorRgb(color) == true, "", _validateRgbComponent(color.g, label, "g")]()
 => :Str
 
 _validateRgbB color label prev =
-  | _isNoColorRgb(color) == true |> ""
-  | _ |> _validateRgbComponent(color.b, label, "b")
+  If[_isNoColorRgb(color) == true, "", _validateRgbComponent(color.b, label, "b")]()
 => :Str
 
 // -- Stylize256 (TM-6e) --
@@ -248,30 +223,13 @@ Stylize256 text opts =
   // Validate indices first (these throw on invalid values)
   vfg <= _validate256(opts.fg.index, "foreground")
   vbg <= _validate256(opts.bg.index, "background")
-  // Pre-evaluate results
-  fgResult <= _safeFg256Code(opts.fg.index)
-  bgResult <= _safeBg256Code(opts.bg.index)
-  fgSkip <= opts.fg.index == -1
-  bgSkip <= opts.bg.index == -1
-  // Build SGR parameter codes
-  c1 <= fgResult
-  c2pre <= _appendCode(c1, bgResult)
-  c2 <= | bgSkip == true |> c1
-        | _ |> c2pre
-  c3pre <= _appendCode(c2, "1")
-  c3 <= | opts.bold == false |> c2
-        | _ |> c3pre
-  c4pre <= _appendCode(c3, "2")
-  c4 <= | opts.dim == false |> c3
-        | _ |> c4pre
-  c5pre <= _appendCode(c4, "3")
-  c5 <= | opts.italic == false |> c4
-        | _ |> c5pre
-  c6pre <= _appendCode(c5, "4")
-  c6 <= | opts.underline == false |> c5
-        | _ |> c6pre
-  | c6 == "" |> text
-  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
+  c1 <= _safeFg256Code(opts.fg.index)
+  c2 <= If[opts.bg.index == -1, c1, _appendCode(c1, _safeBg256Code(opts.bg.index))]()
+  c3 <= If[opts.bold == false, c2, _appendCode(c2, "1")]()
+  c4 <= If[opts.dim == false, c3, _appendCode(c3, "2")]()
+  c5 <= If[opts.italic == false, c4, _appendCode(c4, "3")]()
+  c6 <= If[opts.underline == false, c5, _appendCode(c5, "4")]()
+  If[c6 == "", text, "\x1b[" + c6 + "m" + text + "\x1b[0m"]()
 => :Str
 
 // -- StylizeRgb (TM-6e) --
@@ -285,37 +243,20 @@ Stylize256 text opts =
 ///@   StylizeInvalidColor: r/g/b out of 0-255 range
 ///@ Since: a.6
 StylizeRgb text opts =
-  // Validate RGB components
+  // Validate RGB components (these throw on invalid values)
   vfr <= _validateRgbFull(opts.fg, "foreground")
   vfg2 <= _validateRgbG(opts.fg, "foreground", vfr)
   vfb <= _validateRgbB(opts.fg, "foreground", vfg2)
   vbr <= _validateRgbFull(opts.bg, "background")
   vbg2 <= _validateRgbG(opts.bg, "background", vbr)
   vbb <= _validateRgbB(opts.bg, "background", vbg2)
-  // Pre-evaluate results
-  fgSkip <= _isNoColorRgb(opts.fg)
-  bgSkip <= _isNoColorRgb(opts.bg)
-  fgResult <= _safeFgRgbCode(opts.fg)
-  bgResult <= _safeBgRgbCode(opts.bg)
-  // Build SGR parameter codes
-  c1 <= fgResult
-  c2pre <= _appendCode(c1, bgResult)
-  c2 <= | bgSkip == true |> c1
-        | _ |> c2pre
-  c3pre <= _appendCode(c2, "1")
-  c3 <= | opts.bold == false |> c2
-        | _ |> c3pre
-  c4pre <= _appendCode(c3, "2")
-  c4 <= | opts.dim == false |> c3
-        | _ |> c4pre
-  c5pre <= _appendCode(c4, "3")
-  c5 <= | opts.italic == false |> c4
-        | _ |> c5pre
-  c6pre <= _appendCode(c5, "4")
-  c6 <= | opts.underline == false |> c5
-        | _ |> c6pre
-  | c6 == "" |> text
-  | _ |> "\x1b[" + c6 + "m" + text + "\x1b[0m"
+  c1 <= _safeFgRgbCode(opts.fg)
+  c2 <= If[_isNoColorRgb(opts.bg) == true, c1, _appendCode(c1, _safeBgRgbCode(opts.bg))]()
+  c3 <= If[opts.bold == false, c2, _appendCode(c2, "1")]()
+  c4 <= If[opts.dim == false, c3, _appendCode(c3, "2")]()
+  c5 <= If[opts.italic == false, c4, _appendCode(c4, "3")]()
+  c6 <= If[opts.underline == false, c5, _appendCode(c5, "4")]()
+  If[c6 == "", text, "\x1b[" + c6 + "m" + text + "\x1b[0m"]()
 => :Str
 
 <<< @(Color, ResetStyle, Stylize, Color256, ColorRgb, Stylize256, StylizeRgb)
