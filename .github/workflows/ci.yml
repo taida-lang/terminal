@@ -92,6 +92,12 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Resolve taida HEAD SHA
+        id: taida-head
+        run: |
+          SHA=$(git ls-remote https://github.com/taida-lang/taida HEAD | cut -f1)
+          echo "sha=$SHA" >> "$GITHUB_OUTPUT"
+          echo "taida HEAD: $SHA"
       - uses: actions/cache@v5
         with:
           path: |
@@ -100,14 +106,16 @@ jobs:
             ~/.cargo/git/db/
             ~/.cargo/git/checkouts/
             ~/.cargo/bin/
-          key: ${{ runner.os }}-cargo-smoke-taida
+          key: ${{ runner.os }}-cargo-smoke-taida-${{ steps.taida-head.outputs.sha }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-smoke-taida-
       - name: Build addon cdylib
         run: cargo build
       - name: Install taida
         run: |
-          if ! command -v taida &>/dev/null; then
-            cargo install --git https://github.com/taida-lang/taida.git taida
-          fi
+          # Always invoke cargo install; --force ensures a stale binary from an
+          # older cache is replaced when taida HEAD advances.
+          cargo install --force --git https://github.com/taida-lang/taida.git taida
           taida --version
       - name: Run facade smoke test
         run: ./scripts/smoke-test.sh
