@@ -1052,6 +1052,7 @@ Pass to StylizeRgb fg / bg. All -1 means no color.
 - `ReadEvent`
 - `MouseTrackingEnter`
 - `MouseTrackingLeave`
+- `Write`
 - `WidthMode`
 - `MeasureGrapheme`
 - `DisplayWidth`
@@ -1295,6 +1296,43 @@ raw モード必須。ReadKey の上位互換。
 
 **AI-SideEffects**:
 - ブロッキング呼び出し。stdin + SIGWINCH を poll で多重化。
+
+### Write
+
+> stdout に改行なしで即時書き出す（TUI 用）
+
+**Params**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `bytes` | `Str` | 書き出すバイト列（UTF-8）。ANSI エスケープを含んでよい。 |
+
+**Returns**: `Int` — 書き込んだバイト数（`bytes` の UTF-8 バイト長と一致）
+
+**Throws**:
+- `WriteFailed` (5001): `io::stdout().write_all` / `flush` が I/O エラーで失敗した場合（EPIPE, EIO など）
+- `WriteBuildValue` (5002): 戻り値 `Int` のホスト側確保に失敗した場合
+- `WritePanic` (5003): write path 内で panic が発生した場合（FFI 境界で `catch_unwind` により捕捉）
+
+**Example**:
+
+```taida
+Write[]("\x1b[2J\x1b[H")            // clear + home cursor
+Write[](CursorMoveTo[](10, 5))      // cursor move (no implicit \n)
+n <= Write[]("hello")               // n == 5
+Write[]("あいう")                    // UTF-8: n == 9 (byte count, not char count)
+```
+
+**Since**: a.6
+
+**AI-Context**:
+`stdout()` builtin は push 単位で `\n` を暗黙追加する行指向 I/O のため、
+ANSI エスケープを連続送信する TUI 用途にはこの `Write[]()` を使う。
+non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
+silent fallback なし — I/O 失敗は必ず `WriteFailed` として deterministic に返る。
+
+**AI-SideEffects**:
+- stdout に即時書き出す（`write_all` + `flush`）。改行の暗黙追加は行わない。
 
 # Module: widgets.td
 

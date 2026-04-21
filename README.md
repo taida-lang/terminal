@@ -13,7 +13,7 @@ taida install taida-lang/terminal
 ```taida
 >>> taida-lang/terminal => @(
   IsTerminal, TerminalSize, ReadKey, KeyKind,
-  RawModeEnter, RawModeLeave, ReadEvent, EventKind, MouseKind,
+  RawModeEnter, RawModeLeave, ReadEvent, EventKind, MouseKind, Write,
   ClearScreen, CursorMoveTo, CursorHide, CursorShow,
   AltScreenEnter, AltScreenLeave, MouseTrackingEnter, MouseTrackingLeave,
   Stylize, Color, Stylize256, Color256, StylizeRgb, ColorRgb, ResetStyle,
@@ -46,13 +46,21 @@ RawModeLeave[]()
 stdout(ClearScreen[]())
 stdout(CursorMoveTo[](10, 5))
 
+// TUI immediate write (no implicit \n, returns byte count)
+// Use Write[]() when stdout()'s implicit trailing newline would corrupt
+// ANSI framing -- e.g. cursor moves, partial redraws, progress updates.
+Write[](ClearScreen[]())
+Write[](CursorMoveTo[](10, 5))
+n <= Write[]("hello")                 // n == 5, no trailing newline
+Write[](Stylize[]("*", @(fg <= Color.green)))  // spinner tick
+
 // Styled text (16 / 256 / RGB)
 stdout(Stylize[]("hello", @(fg <= Color.red, bold <= true)))
 stdout(Stylize256[]("256", @(fg <= Color256(index <= 208))))
 stdout(StylizeRgb[]("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0))))
 ```
 
-## Exports (59 symbols)
+## Exports (60 symbols)
 
 ### Core (addon)
 
@@ -67,6 +75,7 @@ stdout(StylizeRgb[]("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0))))
 | `ReadEvent` | `() -> @(kind, key, mouse, resize)` -- unified event (raw mode required) |
 | `EventKind` | Key / Mouse / Resize / Unknown |
 | `MouseKind` | Down / Up / Move / Drag / ScrollUp / ScrollDown |
+| `Write` | `(bytes: Str) -> Int` -- unbuffered stdout write (no implicit `\n`), returns byte count |
 
 ### ANSI Facade (pure Taida)
 
@@ -157,6 +166,7 @@ Functions throw deterministic errors (no silent fallbacks):
 - `TerminalSizeNotATty` / `TerminalSizeIoctl`
 - `RawModeNotATty` / `RawModeAlreadyActive` / `RawModeNotActive` / `RawModeEnterFailed` / `RawModeLeaveFailed`
 - `ReadEventNotInRawMode` / `ReadEventNotATty` / `ReadEventReadFailed` / `ReadEventEof` / `ReadEventInterrupted` / `ReadEventPanic` / `ReadEventResizeInitFailed`
+- `WriteFailed` / `WriteBuildValue` / `WritePanic` (5xxx band)
 - `CursorMoveInvalidPosition`
 - `StylizeInvalidColor`
 
@@ -176,7 +186,7 @@ cargo build
 ### Test
 
 ```bash
-cargo test                    # Rust unit + integration tests (340)
+cargo test                    # Rust unit + integration tests (360)
 ./scripts/smoke-test.sh       # Taida facade smoke test
 ```
 
