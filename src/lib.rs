@@ -37,6 +37,12 @@ mod tty;
 #[cfg(windows)]
 mod windows;
 
+// `write` is platform-shared: `io::stdout().write_all + flush` works
+// identically on Unix and Windows and does not require platform-gated
+// syscalls. Introduced by TMB-016.
+#[cfg(any(unix, windows))]
+mod write;
+
 use core::ffi::c_char;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -267,6 +273,31 @@ extern "C" fn read_event(
     }
 }
 
+// ── write (TMB-016) ────────────────────────────────────────────
+
+extern "C" fn write_entry(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    // Arity + host checks happen inside `write_impl` so the same
+    // contract is applied on both platforms and the unit tests in
+    // `write.rs` can drive the dispatcher directly.
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+
+    #[cfg(any(unix, windows))]
+    {
+        write::write_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
 // ── Function table ───────────────────────────────────────────────
 
 /// Function table for the terminal package.
@@ -303,6 +334,11 @@ pub static TERMINAL_FUNCTIONS: &[TaidaAddonFunctionV1] = &[
         name: c"readEvent".as_ptr() as *const c_char,
         arity: 0,
         call: read_event,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"write".as_ptr() as *const c_char,
+        arity: 1,
+        call: write_entry,
     },
 ];
 
@@ -360,11 +396,14 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_advertises_six_functions() {
+    fn descriptor_advertises_seven_functions() {
+        // v1 lock (3) + Phase 2 (rawModeEnter/Leave = 2) + Phase 3
+        // (readEvent = 1) + TMB-016 (write = 1) = 7. Adding an entry
+        // is append-only and bumps this count by one.
         let ptr = unsafe { taida_addon_get_v1() };
         let d = unsafe { &*ptr };
         assert_eq!(d.function_count as usize, TERMINAL_FUNCTIONS.len());
-        assert_eq!(d.function_count, 6);
+        assert_eq!(d.function_count, 7);
     }
 
     #[test]
@@ -394,7 +433,7 @@ mod tests {
         }
         // v1 entries must be at the same positions.
         assert_eq!(&seen[..3], &v1_expected[..]);
-        // Full table includes v1 + Phase 2 + Phase 3 additions.
+        // Full table includes v1 + Phase 2 + Phase 3 + TMB-016.
         let full_expected: Vec<(String, u32)> = vec![
             ("terminalSize".to_string(), 0u32),
             ("readKey".to_string(), 0),
@@ -402,6 +441,7 @@ mod tests {
             ("rawModeEnter".to_string(), 0),
             ("rawModeLeave".to_string(), 0),
             ("readEvent".to_string(), 0),
+            ("write".to_string(), 1),
         ];
         assert_eq!(seen, full_expected);
     }
@@ -581,6 +621,57 @@ mod tests {
         assert_eq!(status, TaidaAddonStatus::ArityMismatch);
     }
 
+    // ── write dispatcher (TMB-016) ─────────────────────────────
+
+    #[test]
+    fn write_entry_is_at_position_six_with_arity_one() {
+        // Function table position is part of the append-only contract:
+        // TMB-016 reserves position 6 (0-indexed) for `write`. Any new
+        // entry must go after this to avoid perturbing downstream tests.
+        let f = &TERMINAL_FUNCTIONS[6];
+        let name = unsafe { CStr::from_ptr(f.name) }.to_str().unwrap();
+        assert_eq!(name, "write");
+        assert_eq!(f.arity, 1);
+    }
+
+    #[test]
+    fn write_returns_invalid_state_when_host_not_initialised() {
+        let f = &TERMINAL_FUNCTIONS[6];
+        let prev = HOST_PTR.swap(core::ptr::null_mut(), Ordering::AcqRel);
+        let status = (f.call)(
+            core::ptr::null(),
+            1,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        );
+        HOST_PTR.store(prev, Ordering::Release);
+        assert_eq!(status, TaidaAddonStatus::InvalidState);
+    }
+
+    #[test]
+    fn write_arity_mismatch_when_args_missing() {
+        let f = &TERMINAL_FUNCTIONS[6];
+        let status = (f.call)(
+            core::ptr::null(),
+            0,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        );
+        assert_eq!(status, TaidaAddonStatus::ArityMismatch);
+    }
+
+    #[test]
+    fn write_arity_mismatch_when_too_many_args() {
+        let f = &TERMINAL_FUNCTIONS[6];
+        let status = (f.call)(
+            core::ptr::null(),
+            3,
+            core::ptr::null_mut(),
+            core::ptr::null_mut(),
+        );
+        assert_eq!(status, TaidaAddonStatus::ArityMismatch);
+    }
+
     // ── Cross-platform capability error contract (TM-6f) ────────
 
     /// Error code ranges are frozen and must be identical across platforms.
@@ -589,6 +680,7 @@ mod tests {
     /// - IsTerminal:    2101-2102
     /// - RawMode:       3001-3005
     /// - ReadEvent:     4001-4007
+    /// - Write:         5001-5003 (TMB-016)
     #[test]
     #[cfg(unix)]
     fn error_code_ranges_are_frozen_unix() {
@@ -597,6 +689,7 @@ mod tests {
         use crate::raw_mode::err as re;
         use crate::size::err as se;
         use crate::tty::err as te;
+        use crate::write::err as we;
 
         // ReadKey error codes
         assert_eq!(ke::READ_KEY_NOT_A_TTY, 1001);
@@ -629,6 +722,11 @@ mod tests {
         assert_eq!(ee::READ_EVENT_INTERRUPTED, 4005);
         assert_eq!(ee::READ_EVENT_PANIC, 4006);
         assert_eq!(ee::READ_EVENT_RESIZE_INIT_FAILED, 4007);
+
+        // Write error codes (TMB-016)
+        assert_eq!(we::WRITE_FAILED, 5001);
+        assert_eq!(we::WRITE_BUILD_VALUE, 5002);
+        assert_eq!(we::WRITE_PANIC, 5003);
     }
 
     /// Cross-platform error name contract: the Taida-side error type names
@@ -669,6 +767,10 @@ mod tests {
             // Windows-only (capability init)
             "TerminalSizeUnsupported",
             "ReadKeyUnsupported",
+            // Write (TMB-016)
+            "WriteFailed",
+            "WriteBuildValue",
+            "WritePanic",
         ];
         // Verify no duplicates.
         let mut sorted = expected.to_vec();
@@ -682,6 +784,6 @@ mod tests {
             );
         }
         // Count is the contract — adding a new error must update this.
-        assert_eq!(expected.len(), 24);
+        assert_eq!(expected.len(), 27);
     }
 }

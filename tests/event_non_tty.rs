@@ -171,7 +171,8 @@ fn find_function(name: &str) -> &'static taida_addon::TaidaAddonFunctionV1 {
 #[test]
 fn function_table_contains_read_event() {
     let functions = __test_only::functions();
-    assert_eq!(functions.len(), 6, "function table must have 6 entries");
+    // TMB-016 appended `write` as the 7th entry (append-only contract).
+    assert_eq!(functions.len(), 7, "function table must have 7 entries");
 
     // readEvent must be at index 5
     let f = &functions[5];

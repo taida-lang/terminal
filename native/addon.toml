@@ -10,6 +10,7 @@ isTerminal = 1
 rawModeEnter = 0
 rawModeLeave = 0
 readEvent = 0
+write = 1
 
 [library.prebuild]
 url = "https://github.com/taida-lang/terminal/releases/download/{version}/lib{name}-{target}.{ext}"

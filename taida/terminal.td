@@ -240,6 +240,27 @@ MouseKind <= @(
 ///@ Since: a.5
 ReadEvent <= readEvent
 
+// ── Write (TMB-016) ────────────────────────────────────────────
+
+///@ Purpose: stdout に改行なしで即時書き出す（TUI 用）
+///@ Params:
+///@   bytes: Str — 書き出すバイト列（UTF-8）。ANSI エスケープを含んでよい。
+///@ Returns: Int — 書き込んだバイト数
+///@ Throws:
+///@   WriteFailed: write_all / flush が I/O エラーで失敗した場合 (EPIPE 等)
+///@   WriteBuildValue: 戻り値 Int のホスト側確保に失敗した場合
+///@   WritePanic: write path 内で panic が発生した場合（FFI 境界で捕捉）
+///@ Example:
+///@   Write[]("\x1b[2J\x1b[H")          // clear + home cursor
+///@   Write[](CursorMoveTo[](10, 5))    // カーソル移動（改行なし）
+///@   n <= Write[]("hello")             // n == 5
+///@ AI-SideEffects: stdout に即時書き出す（flush 付き）。改行の暗黙追加は行わない。
+///@ AI-Context: `stdout()` builtin は push 単位で `\n` を暗黙追加する行指向 I/O のため、
+///@   ANSI エスケープを連続送信する TUI 用途にはこの Write[]() を使う。
+///@   non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
+///@ Since: a.6
+Write <= write
+
 // ── Prompt / Line Editor facade imports (TM-5a..5f) ─────────────
 //
 // Pure Taida line editor state machine: event in, state out.
@@ -254,4 +275,4 @@ ReadEvent <= readEvent
 
 >>> ./widgets.td => @(SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
 
-<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
+<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, Write, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)

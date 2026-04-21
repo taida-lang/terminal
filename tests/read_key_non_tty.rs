@@ -223,7 +223,9 @@ fn read_key_returns_not_a_tty_error_when_stdin_is_not_a_tty() {
     // table directly. We still validate the table layout to keep
     // the v1 lock honest.
     let functions = __test_only::functions();
-    assert_eq!(functions.len(), 6);
+    // TMB-016 appended `write` as the 7th entry. The append-only
+    // contract only allows the count to grow.
+    assert_eq!(functions.len(), 7);
 
     // Step 2: drive the init callback so the addon captures our host
     // pointer (this is the same handshake the Native loader performs).
