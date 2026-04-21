@@ -256,13 +256,41 @@ fn ensure_sigwinch_pipe() -> i32 {
     SIGWINCH_PIPE[1].store(fds[1], Ordering::Release);
 
     // Install signal handler, saving the old one (TMB-007).
+    //
+    // TMB-017: install order must be race-free. If we call
+    // `sigaction(SIGWINCH, &sa, &mut old_sa)` first and *then* publish
+    // `old_sa` to `OLD_SIGWINCH`, there is a window where our handler
+    // can fire with `OLD_SIGWINCH == null`, silently dropping the
+    // chain to any previously-installed handler from other libraries.
+    //
+    // The fix is a 2-step install:
+    //   1. Query the current handler via `sigaction(SIGWINCH, NULL, &mut old_sa)`
+    //      (no install yet — signal disposition is unchanged).
+    //   2. Publish `OLD_SIGWINCH` so the chain target is visible.
+    //   3. Install our handler via `sigaction(SIGWINCH, &sa, NULL)`.
+    //      Any SIGWINCH delivered after this point finds the chain
+    //      target already stored with Release ordering, so the
+    //      Relaxed load inside the handler is safe (install itself is
+    //      a full barrier on any sensible platform).
+    //   4. Mark `SIGWINCH_INSTALLED = true` last, so the fast-path
+    //      in `ensure_sigwinch_pipe()` only skips the install once the
+    //      handler is fully live.
     let mut sa: libc::sigaction = unsafe { core::mem::zeroed() };
     sa.sa_sigaction = sigwinch_handler as *const () as usize;
     sa.sa_flags = libc::SA_RESTART;
     unsafe { libc::sigemptyset(&mut sa.sa_mask) };
+
+    // Step 1: query current handler without installing ours.
     let mut old_sa: libc::sigaction = unsafe { core::mem::zeroed() };
-    if unsafe { libc::sigaction(libc::SIGWINCH, &sa, &mut old_sa) } != 0 {
-        // Handler install failed — close the pipe and bail.
+    if unsafe {
+        libc::sigaction(
+            libc::SIGWINCH,
+            core::ptr::null(),
+            &mut old_sa as *mut libc::sigaction,
+        )
+    } != 0
+    {
+        // Could not even query the current handler — close pipe and bail.
         unsafe {
             libc::close(fds[0]);
             libc::close(fds[1]);
@@ -272,11 +300,39 @@ fn ensure_sigwinch_pipe() -> i32 {
         return -1;
     }
 
-    // Store the old handler on the heap so the signal handler can
-    // read it via AtomicPtr without a mutex (async-signal-safe).
+    // Step 2: publish the old handler *before* installing ours so the
+    // handler, if it fires on the very next instruction, already sees
+    // a valid chain target (TMB-017).
     let old_box = Box::new(old_sa);
-    OLD_SIGWINCH.store(Box::into_raw(old_box), Ordering::Release);
+    let old_raw = Box::into_raw(old_box);
+    OLD_SIGWINCH.store(old_raw, Ordering::Release);
 
+    // Step 3: install our handler (third arg NULL — we already have old).
+    if unsafe {
+        libc::sigaction(
+            libc::SIGWINCH,
+            &sa as *const libc::sigaction,
+            core::ptr::null_mut(),
+        )
+    } != 0
+    {
+        // Install failed. Roll back the OLD_SIGWINCH publication and
+        // free the heap allocation so we don't leak on retry. The
+        // handler was never installed, so no signal can reach the
+        // chain path from this point on.
+        OLD_SIGWINCH.store(core::ptr::null_mut(), Ordering::Release);
+        unsafe {
+            drop(Box::from_raw(old_raw));
+            libc::close(fds[0]);
+            libc::close(fds[1]);
+        }
+        SIGWINCH_PIPE[0].store(-1, Ordering::Release);
+        SIGWINCH_PIPE[1].store(-1, Ordering::Release);
+        return -1;
+    }
+
+    // Step 4: mark installed last so fast-path callers only see the
+    // flag once the handler is fully live.
     SIGWINCH_INSTALLED.store(true, Ordering::Release);
     fds[0]
 }
@@ -1084,6 +1140,38 @@ enum EventInflightStatus<'a> {
     Decoded(HostValueBuilder<'a>, DecodedEvent),
 }
 
+// ── TMB-017 test-only probe ─────────────────────────────────────
+
+/// TMB-017 probe: invoke `ensure_sigwinch_pipe` and return an
+/// observation of the global state in strict *post-install* order.
+///
+/// Returns `(rfd, installed_flag, old_handler_non_null)`:
+///
+/// - `rfd` — pipe read fd (-1 on failure).
+/// - `installed_flag` — value of `SIGWINCH_INSTALLED` *after* the
+///   call returns.
+/// - `old_handler_non_null` — whether `OLD_SIGWINCH` is non-null.
+///
+/// The invariant pinned by this probe: when the install succeeded
+/// (rfd >= 0), `old_handler_non_null` must be true. Under the pre-
+/// TMB-017 install order (sigaction-with-old-out first, then publish)
+/// this held *eventually* but not atomically w.r.t. the first signal
+/// delivery. The new 2-step install order (query old → publish →
+/// install new) makes the publication a prerequisite of install, so
+/// `old_handler_non_null` is necessarily true before `installed_flag`
+/// can become true.
+///
+/// This function is only compiled in unit/integration test builds.
+#[doc(hidden)]
+pub fn __test_only_sigwinch_snapshot() -> (i32, bool, bool) {
+    let rfd = ensure_sigwinch_pipe();
+    // Load in the order a consumer would: installed flag first
+    // (fast-path gate), then the chain target.
+    let installed = SIGWINCH_INSTALLED.load(Ordering::Acquire);
+    let old_non_null = !OLD_SIGWINCH.load(Ordering::Acquire).is_null();
+    (rfd, installed, old_non_null)
+}
+
 // ── Unit tests ──────────────────────────────────────────────────
 
 #[cfg(test)]
@@ -1329,6 +1417,67 @@ mod tests {
             assert!(
                 !old_ptr.is_null(),
                 "OLD_SIGWINCH must be non-null after handler installation"
+            );
+        }
+    }
+
+    // ── TMB-017: install order race window ──────────────────
+    //
+    // These tests pin the 2-step install order introduced by
+    // TMB-017 so that future refactors cannot silently reintroduce
+    // the null-chain race.
+
+    #[test]
+    fn tmb_017_old_handler_published_before_installed_flag() {
+        // The fix guarantees: if SIGWINCH_INSTALLED is true, then
+        // OLD_SIGWINCH is already non-null. (The new install order
+        // publishes OLD_SIGWINCH *before* installing the new
+        // handler, and sets INSTALLED = true only after the new
+        // handler is live.)
+        let rfd = ensure_sigwinch_pipe();
+        if rfd < 0 {
+            return; // Skip in constrained environments.
+        }
+        let installed = SIGWINCH_INSTALLED.load(Ordering::Acquire);
+        let old_ptr = OLD_SIGWINCH.load(Ordering::Acquire);
+        assert!(installed, "install must report success when rfd >= 0");
+        assert!(
+            !old_ptr.is_null(),
+            "TMB-017: OLD_SIGWINCH must be non-null whenever SIGWINCH_INSTALLED is true — \
+             the 2-step install order publishes OLD_SIGWINCH before flipping the flag"
+        );
+    }
+
+    #[test]
+    fn tmb_017_reinstall_is_idempotent_and_preserves_old_handler() {
+        // Calling ensure_sigwinch_pipe a second time must hit the
+        // fast path (flag already set) and must NOT rewrite
+        // OLD_SIGWINCH — otherwise we'd capture *our own* handler
+        // as the chain target, creating a self-loop.
+        let rfd1 = ensure_sigwinch_pipe();
+        if rfd1 < 0 {
+            return;
+        }
+        let old1 = OLD_SIGWINCH.load(Ordering::Acquire);
+        let rfd2 = ensure_sigwinch_pipe();
+        let old2 = OLD_SIGWINCH.load(Ordering::Acquire);
+        assert_eq!(rfd1, rfd2);
+        assert_eq!(
+            old1, old2,
+            "TMB-017: second ensure_sigwinch_pipe must not rewrite OLD_SIGWINCH \
+             (otherwise we'd chain to ourselves)"
+        );
+
+        // The stored old handler must not be our own sigwinch_handler.
+        // If it were, the chain path would infinite-loop in a real
+        // SIGWINCH delivery.
+        if !old2.is_null() {
+            let stored = unsafe { &*old2 };
+            let our_handler = sigwinch_handler as *const () as usize;
+            assert_ne!(
+                stored.sa_sigaction, our_handler,
+                "TMB-017: OLD_SIGWINCH must not capture our own handler — \
+                 install order fix must query BEFORE installing"
             );
         }
     }

@@ -373,6 +373,24 @@ pub mod __test_only {
     pub fn functions() -> &'static [TaidaAddonFunctionV1] {
         super::TERMINAL_FUNCTIONS
     }
+
+    /// TMB-017 probe: install the SIGWINCH self-pipe and return the
+    /// observed ordering snapshot for integration tests. Returns
+    /// `(pipe_rfd, installed_flag, old_handler_is_non_null)`.
+    ///
+    /// The invariant pinned by TMB-017 is:
+    ///   1. If the install succeeds (`rfd >= 0`), then by the time
+    ///      this function returns `OLD_SIGWINCH` must already be
+    ///      published (non-null). It cannot become non-null *after*
+    ///      the new handler is installed — that is the race window
+    ///      the fix closes.
+    ///   2. `SIGWINCH_INSTALLED` must be `true` only after the new
+    ///      handler is live, so any fast-path caller observes a
+    ///      fully-published state.
+    #[cfg(unix)]
+    pub fn sigwinch_install_snapshot() -> (i32, bool, bool) {
+        super::event::__test_only_sigwinch_snapshot()
+    }
 }
 
 // ── Unit tests ───────────────────────────────────────────────────
