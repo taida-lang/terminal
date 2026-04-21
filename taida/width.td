@@ -111,8 +111,7 @@ _dwCalc src idx acc len =
   | _ |>
     CharAt[src, idx]() ]=> ch
     CodePoint[ch]() ]=> cp
-    step <= | cp > 65535 |> 2
-            | _ |> 1
+    step <= If[cp > 65535, 2, 1]()
     m <= MeasureGrapheme(ch)
     _dwCalc(src, idx + step, acc + m.width, len)
 => :Int
@@ -132,10 +131,12 @@ _normLoop src idx acc len =
   | idx == len |> acc
   | _ |>
     CharAt[src, idx]() ]=> ch
-    nextAcc <= | ch == "\t" |> acc + "    "
-               | ch == "\n" |> acc
-               | ch == "\r" |> acc
-               | _ |> acc + ch
+    nextAcc <= (
+      | ch == "\t" |> acc + "    "
+      | ch == "\n" |> acc
+      | ch == "\r" |> acc
+      | _ |> acc + ch
+    )
     _normLoop(src, idx + 1, nextAcc, len)
 => :Str
 
@@ -161,8 +162,7 @@ _twLoop src idx acc remaining len =
   | _ |>
     CharAt[src, idx]() ]=> ch
     CodePoint[ch]() ]=> cp
-    step <= | cp > 65535 |> 2
-            | _ |> 1
+    step <= If[cp > 65535, 2, 1]()
     m <= MeasureGrapheme(ch)
     | m.width > remaining |> acc
     | _ |> _twLoop(src, idx + step, acc + ch, remaining - m.width, len)

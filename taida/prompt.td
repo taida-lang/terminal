@@ -149,14 +149,12 @@ _stepEditing state key =
 => :@()
 
 _stepArrowLeft state =
-  nc <= | state.cursor > 0 |> state.cursor - 1
-        | _ |> 0
+  nc <= If[state.cursor > 0, state.cursor - 1, 0]()
   _makeState(state.text, nc, state, LineEditorAction.Editing)
 => :@()
 
 _stepArrowRight state =
-  nc <= | state.cursor < state.text.length() |> state.cursor + 1
-        | _ |> state.text.length()
+  nc <= If[state.cursor < state.text.length(), state.cursor + 1, state.text.length()]()
   _makeState(state.text, nc, state, LineEditorAction.Editing)
 => :@()
 
@@ -192,11 +190,12 @@ _stepHistoryPrev state =
 => :@()
 
 _stepHistoryPrevDo state =
-  newIdx <= | state.history_index == -1 |> state.history.length() - 1
-            | state.history_index > 0   |> state.history_index - 1
-            | _ |> 0
-  saved <= | state.history_index == -1 |> state.text
-           | _ |> state.history_saved
+  newIdx <= (
+    | state.history_index == -1 |> state.history.length() - 1
+    | state.history_index > 0   |> state.history_index - 1
+    | _ |> 0
+  )
+  saved <= If[state.history_index == -1, state.text, state.history_saved]()
   state.history.get(newIdx) ]=> histText
   _makeStateHist(histText, histText.length(), state, newIdx, saved, LineEditorAction.Editing)
 => :@()
@@ -225,8 +224,7 @@ _stepHistoryNextLoad state newIdx =
 LineEditorRender state =
   displayText <= _getDisplayText(state)
   promptWidth <= DisplayWidth(state.prompt)
-  cursorDisplayPos <= | state.mode == PromptMode.Password |> state.cursor
-                      | _ |> _cursorWidthCalc(state)
+  cursorDisplayPos <= If[state.mode == PromptMode.Password, state.cursor, _cursorWidthCalc(state)]()
   cursorCol <= promptWidth + cursorDisplayPos + 1
   @(line <= ClearLine() + state.prompt + displayText, cursor_col <= cursorCol)
 => :@()

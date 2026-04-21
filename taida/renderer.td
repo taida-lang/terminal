@@ -149,10 +149,8 @@ BufferResize buf cols rows fill =
 _bufferResizeInner buf cols rows fill =
   fillCell <= Cell
   cells <= _makeCellsLoop(@[fillCell], cols * rows - 1, fillCell)
-  cc <= | buf.cursor_col > cols |> cols
-        | _ |> buf.cursor_col
-  cr <= | buf.cursor_row > rows |> rows
-        | _ |> buf.cursor_row
+  cc <= If[buf.cursor_col > cols, cols, buf.cursor_col]()
+  cr <= If[buf.cursor_row > rows, rows, buf.cursor_row]()
   ScreenBuffer(cols <= cols, rows <= rows, cells <= cells, cursor_col <= cc, cursor_row <= cr, cursor_visible <= buf.cursor_visible)
 => :@()
 
