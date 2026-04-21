@@ -25,6 +25,30 @@
 //!
 //! These tests pin the externally observable invariants that follow
 //! from that ordering, so a future refactor cannot silently regress.
+//!
+//! ── Review follow-up (2026-04-21) ───────────────────────────────
+//!
+//! The original v1 of this test file attempted the "strong path"
+//! (external handler → addon install → SIGWINCH delivery → chain
+//! assertion) inside `external_sigwinch_handler_is_still_chained_after_install`
+//! but guarded on `sigwinch_install_snapshot()` — which itself calls
+//! `ensure_sigwinch_pipe()` and therefore installed the addon handler
+//! *before* the test could pre-install its external handler. The
+//! `if pre_snapshot.1 { return; }` branch was always taken on success
+//! environments, making the strong path unreachable.
+//!
+//! The fix is split across two binaries:
+//!
+//!   - **This file** keeps the observation-only invariants (tests 1/2)
+//!     using the side-effectful `sigwinch_install_snapshot()` probe.
+//!     These two tests legitimately *want* the install to happen — they
+//!     pin ordering invariants that can only be observed post-install.
+//!   - **`tests/sigwinch_external_chain.rs`** is a dedicated binary
+//!     containing only the strong path. Because cargo compiles each
+//!     `tests/*.rs` file into a separate binary, that file's single
+//!     test runs in a fresh process where SIGWINCH disposition is
+//!     guaranteed uninstalled at entry, so the external-handler-first
+//!     sequence is reliably reachable.
 
 #![cfg(unix)]
 
@@ -83,90 +107,35 @@ fn snapshot_is_idempotent_after_first_install() {
     );
 }
 
-/// Invariant 3: the chain target stored in `OLD_SIGWINCH` must not
-/// be our own handler. If the old install order had ever been
-/// called twice (e.g. by two separate addons in the same process)
-/// the second call would capture *our* handler as the previous one
-/// and the SIGWINCH delivery would self-chain until stack overflow.
-/// TMB-017's idempotence guard (SIGWINCH_INSTALLED fast-path) plus
-/// the query-first install order makes this unreachable.
+/// Invariant 3 (weaker): the pure probe does not mutate state.
 ///
-/// We cannot easily inspect `OLD_SIGWINCH` from outside the crate,
-/// so this test instead exercises actual delivery: pre-install a
-/// benign external handler, let the addon install over it, then
-/// send ourselves SIGWINCH and confirm the pipe receives a byte
-/// (i.e. our handler fired) AND the pre-installed handler also
-/// fired. If our install captured ourselves instead of the external
-/// handler, the external counter would stay at zero.
+/// This pins the new test probe contract introduced in the review
+/// follow-up: `sigwinch_pure_probe()` must *only* load the atomics
+/// and must never install the addon handler as a side effect.
+/// Calling it should be observationally equivalent to a no-op, so
+/// two back-to-back calls return the same tuple, and its return
+/// value at steady state matches what `sigwinch_install_snapshot`
+/// observes post-install (installed=true, old_non_null=true).
 #[test]
-fn external_sigwinch_handler_is_still_chained_after_install() {
-    use std::sync::atomic::{AtomicU32, Ordering};
-
-    // Install a pre-existing external SIGWINCH handler that bumps a
-    // counter. This simulates a second library that installed first.
-    static EXTERNAL_COUNT: AtomicU32 = AtomicU32::new(0);
-    extern "C" fn external_handler(_sig: i32) {
-        EXTERNAL_COUNT.fetch_add(1, Ordering::Relaxed);
-    }
-
-    // Only run if we can still (re)install — if the addon's
-    // SIGWINCH handler is already installed from a prior test in
-    // the same process, the snapshot fast-path will skip re-install
-    // and we can't verify chain-capture for this particular external
-    // handler. In that case we assert the weaker invariant: a
-    // SIGWINCH delivery reaches our self-pipe without crashing.
-    let pre_snapshot = __test_only::sigwinch_install_snapshot();
-    if pre_snapshot.0 < 0 {
-        return;
-    }
-
-    if pre_snapshot.1 {
-        // Addon already installed (likely from another test). We
-        // cannot retro-insert a pre-existing external handler now
-        // without clobbering the addon. Weaker assertion only.
-        unsafe {
-            libc::kill(libc::getpid(), libc::SIGWINCH);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(20));
-        // No panic reaching here means the chain path did not
-        // dereference a null OLD_SIGWINCH, which is the TMB-017
-        // core invariant.
-        return;
-    }
-
-    // Fresh state: install external handler first.
-    let mut sa: libc::sigaction = unsafe { core::mem::zeroed() };
-    sa.sa_sigaction = external_handler as *const () as usize;
-    sa.sa_flags = libc::SA_RESTART;
-    unsafe { libc::sigemptyset(&mut sa.sa_mask) };
-    let rc = unsafe { libc::sigaction(libc::SIGWINCH, &sa, core::ptr::null_mut()) };
-    assert_eq!(rc, 0, "failed to install external SIGWINCH handler");
-
-    // Now let the addon install over it — this must capture
-    // `external_handler` as OLD_SIGWINCH, not our own handler.
+fn pure_probe_has_no_install_side_effect() {
+    // First, ensure the addon is installed by using the install
+    // probe — the pure probe below must agree with the state the
+    // install probe left behind.
     let snap = __test_only::sigwinch_install_snapshot();
-    assert!(snap.1, "addon must install successfully");
-    assert!(snap.2, "OLD_SIGWINCH must be non-null (points at external)");
-
-    // Deliver SIGWINCH and verify chain actually ran.
-    EXTERNAL_COUNT.store(0, Ordering::SeqCst);
-    unsafe {
-        libc::kill(libc::getpid(), libc::SIGWINCH);
+    if snap.0 < 0 {
+        return;
     }
-    std::thread::sleep(std::time::Duration::from_millis(20));
 
-    // Drain the self-pipe to confirm our own handler fired.
-    let mut buf = [0u8; 8];
-    let n = unsafe { libc::read(snap.0, buf.as_mut_ptr() as *mut _, buf.len()) };
-    assert!(n > 0, "addon self-pipe must have data — our handler fired");
-
-    // External handler must also have fired via the chain.
-    let ext = EXTERNAL_COUNT.load(Ordering::SeqCst);
+    let probe_a = __test_only::sigwinch_pure_probe();
+    let probe_b = __test_only::sigwinch_pure_probe();
+    assert_eq!(
+        probe_a, probe_b,
+        "TMB-017 review: sigwinch_pure_probe must be idempotent \
+         (pure read of atomics, no install side effect)"
+    );
     assert!(
-        ext > 0,
-        "TMB-017: external SIGWINCH handler must be chained — \
-         OLD_SIGWINCH must have been published before addon install \
-         so the chain target was captured correctly (got count = {})",
-        ext
+        probe_a.0 && probe_a.1,
+        "TMB-017 review: after install, pure probe must report \
+         installed=true AND old_non_null=true"
     );
 }

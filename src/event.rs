@@ -1172,6 +1172,26 @@ pub fn __test_only_sigwinch_snapshot() -> (i32, bool, bool) {
     (rfd, installed, old_non_null)
 }
 
+/// TMB-017 review follow-up: **pure** probe of the SIGWINCH install
+/// globals without triggering `ensure_sigwinch_pipe`.
+///
+/// The existing `__test_only_sigwinch_snapshot` unconditionally installs
+/// the addon's SIGWINCH handler as a side effect — which is correct for
+/// the "install ordering" invariants but makes it impossible to write a
+/// test that answers "is the addon already installed?" *before*
+/// deciding whether to pre-install an external handler. This pure probe
+/// only loads the atomics and performs no syscall, so a caller can
+/// cheaply detect the uninstalled state and safely install its own
+/// external handler first.
+///
+/// Returns `(installed_flag, old_handler_non_null)`. Does not install.
+#[doc(hidden)]
+pub fn __test_only_sigwinch_pure_probe() -> (bool, bool) {
+    let installed = SIGWINCH_INSTALLED.load(Ordering::Acquire);
+    let old_non_null = !OLD_SIGWINCH.load(Ordering::Acquire).is_null();
+    (installed, old_non_null)
+}
+
 // ── Unit tests ──────────────────────────────────────────────────
 
 #[cfg(test)]

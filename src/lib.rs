@@ -391,6 +391,24 @@ pub mod __test_only {
     pub fn sigwinch_install_snapshot() -> (i32, bool, bool) {
         super::event::__test_only_sigwinch_snapshot()
     }
+
+    /// TMB-017 review follow-up: **pure** probe of the SIGWINCH install
+    /// globals without triggering install as a side effect.
+    ///
+    /// `sigwinch_install_snapshot()` above invokes `ensure_sigwinch_pipe()`
+    /// and therefore installs the addon handler *on observation*, which
+    /// destroys the very state integration tests of the "external
+    /// handler → addon install → chain on SIGWINCH delivery" path need
+    /// to assert their pre-condition. This pure probe loads the
+    /// atomics only (no syscall, no install) so tests can answer
+    /// "is the addon already installed?" safely before deciding to
+    /// pre-install their own external handler.
+    ///
+    /// Returns `(installed_flag, old_handler_non_null)`.
+    #[cfg(unix)]
+    pub fn sigwinch_pure_probe() -> (bool, bool) {
+        super::event::__test_only_sigwinch_pure_probe()
+    }
 }
 
 // ── Unit tests ───────────────────────────────────────────────────
