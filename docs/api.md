@@ -1736,3 +1736,82 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 **AI-Context**:
 Compare with MeasureGrapheme result `mode` field.
 
+# Native binding routes (Phase 8 / TMB-020)
+
+Eight renderer hot-path entries are implemented in the Rust addon
+(`src/renderer/{state,ops,diff}.rs`) and dispatched from the facade
+through pre-injected addon sentinels. The public `<<<` surface in
+`taida/terminal.td` is unchanged from `@a.4`, but the implementation
+moved from pure Taida (O(N²) list-replace) to native (`Vec<Cell>`
+direct mutation) to fix TMB-020.
+
+## Function table layout
+
+`native/addon.toml` declares 15 entries (append-only since `@a.3`'s
+7-entry table). The first 7 (`terminalSize` through `write`) keep their
+v1 ABI position and arity. The 8 entries appended in `@a.5` are:
+
+| Sentinel (lowercase) | Arity | Public alias (uppercase) | Implementation |
+|----------------------|-------|--------------------------|----------------|
+| `bufferPut` | 4 | `BufferPut` | `src/renderer/ops.rs::buffer_put_impl` |
+| `bufferWrite` | 5 | `BufferWrite` | `src/renderer/ops.rs::buffer_write_impl` |
+| `bufferFillRect` | 6 | `BufferFillRect` | `src/renderer/ops.rs::buffer_fill_rect_impl` |
+| `bufferClear` | 2 | `BufferClear` | `src/renderer/ops.rs::buffer_clear_impl` |
+| `bufferDiff` | 2 | `BufferDiff` | `src/renderer/diff.rs::buffer_diff_impl` |
+| `renderFull` | 1 | `RenderFull` | `src/renderer/diff.rs::render_full_impl` |
+| `renderFrame` | 2 | `RenderFrame` | `src/renderer/diff.rs::render_frame_impl` |
+| `renderOps` | 1 | `RenderOps` | `src/renderer/diff.rs::render_ops_impl` |
+
+## Dispatch placement
+
+The native dispatch aliases (`BufferPut <= bufferPut`, etc.) live in
+`taida/terminal.td`, **not** in `taida/renderer.td`. Reason: the addon
+sentinel is pre-injected only into the top-level package facade's env;
+sub-imports (`>>> ./renderer.td`) do not see the lowercase sentinel
+binding. `taida/renderer.td` keeps the pure-Taida type definitions
+(`Cell` / `CellStyle` / `ScreenBuffer` / `DiffOpKind` / `DiffOp`) and
+the cheap allocation helpers (`BufferNew` / `BufferResize`).
+
+## FFI marshalling contract
+
+Each native entry follows the same shape:
+
+1. Receive pack arguments. `parse_buffer` / `parse_cell` /
+   `parse_style` / `parse_diff_op` (in `src/renderer/state.rs`) decode
+   pack -> Rust value.
+2. Run the hot path against `Vec<Cell>` (mutate in place after a single
+   clone of the input vec).
+3. Re-emit the result as a pack via `build_buffer` / `build_diff_result`
+   / `build_frame_result`.
+
+A `panic::catch_unwind` barrier wraps every entry so any Rust panic
+becomes a `RendererPanic` (6005) error rather than unwinding across
+the FFI boundary.
+
+## Error band 6xxx
+
+Renderer errors are deterministic and never silently fall back:
+
+| Code | Variant | When |
+|------|---------|------|
+| 6001 | `RendererInvalidArg` | wrong arity / bad pack shape |
+| 6002 | `RendererOutOfBounds` | col/row outside `1..=cols/rows` |
+| 6003 | `RendererInvalidSize` | cols < 1 or rows < 1 |
+| 6004 | `RendererBuildValue` | host-side pack construction failure |
+| 6005 | `RendererPanic` | Rust panic captured at the FFI boundary |
+
+The 6xxx band is non-overlapping with the existing 1xxx-5xxx bands
+(`TerminalSize` / `ReadKey` / `RawMode` / `ReadEvent` / `Write`).
+
+## Bench gate (TM-8g)
+
+`benches/renderer_perf.rs` exercises the native entries via
+`renderer_bench_api` (a `#[doc(hidden)]` re-export that skips the FFI
+marshalling cost so the hot path itself is measured). CI runs
+`cargo bench --bench renderer_perf -- --noplot` and gates on the five
+budgeted benches via `scripts/check-bench-budget.sh`. The
+informational `scripts/compare-bench-baseline.sh` writes a markdown
+table to `$GITHUB_STEP_SUMMARY` comparing the run against
+`benches/baseline.json` (committed). Both scripts are ABI-agnostic and
+do not gate on facade behaviour.
+
