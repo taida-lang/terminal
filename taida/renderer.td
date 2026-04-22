@@ -26,7 +26,6 @@
 // -- Cell --
 
 ///@ Purpose: One cell of data (character + style)
-///@ Since: a.6
 Cell <= @(
   text      <= " "
   fg        <= ""
@@ -41,7 +40,6 @@ Cell <= @(
 ///@ AI-Context: BufferWrite style arg must be this 6-field shape. Use
 ///@   `CellStyle(fg <= "red", bg <= "", bold <= false, dim <= false,
 ///@   underline <= false, italic <= false)` — every field must be present.
-///@ Since: a.4
 CellStyle <= @(
   fg        <= ""
   bg        <= ""
@@ -54,7 +52,6 @@ CellStyle <= @(
 // -- ScreenBuffer --
 
 ///@ Purpose: Virtual screen buffer (row-major flat cells)
-///@ Since: a.6
 ScreenBuffer <= @(
   cols           <= 0
   rows           <= 0
@@ -67,7 +64,6 @@ ScreenBuffer <= @(
 // -- DiffOpKind --
 
 ///@ Purpose: Diff operation kind
-///@ Since: a.6
 DiffOpKind <= @(
   MoveTo     <= 0
   Write      <= 1
@@ -79,7 +75,6 @@ DiffOpKind <= @(
 // -- DiffOp --
 
 ///@ Purpose: A single diff operation
-///@ Since: a.6
 DiffOp <= @(
   kind  <= DiffOpKind.Write
   col   <= 1
@@ -184,7 +179,6 @@ _bufferPutInner buf col row cell =
 
 ///@ Purpose: Create an empty buffer of the specified size
 ///@ Throws: RendererInvalidSize if cols < 1 or rows < 1
-///@ Since: a.6
 _bufferNewInner cols rows =
   fill <= Cell
   cells <= _makeCellsLoop(@[fill], cols * rows - 1, fill)
@@ -200,7 +194,6 @@ BufferNew cols rows =
 // -- BufferResize --
 
 ///@ Purpose: Resize a buffer, preserving existing content where possible
-///@ Since: a.6
 _bufferResizeInner buf cols rows fill =
   fillCell <= Cell
   cells <= _makeCellsLoop(@[fillCell], cols * rows - 1, fillCell)
@@ -218,7 +211,6 @@ BufferResize buf cols rows fill =
 // -- BufferClear --
 
 ///@ Purpose: Clear the entire buffer with a fill cell
-///@ Since: a.6
 BufferClear buf fill =
   cells <= _makeCellsLoop(@[fill], buf.cols * buf.rows - 1, fill)
   ScreenBuffer(cols <= buf.cols, rows <= buf.rows, cells <= cells, cursor_col <= buf.cursor_col, cursor_row <= buf.cursor_row, cursor_visible <= buf.cursor_visible)
@@ -228,7 +220,6 @@ BufferClear buf fill =
 
 ///@ Purpose: Write a single cell at a given position
 ///@ Throws: RendererOutOfBounds
-///@ Since: a.6
 BufferPut buf col row cell =
   | col < 1 |> Error(type <= "RendererOutOfBounds", message <= "col out of bounds").throw()
   | row < 1 |> Error(type <= "RendererOutOfBounds", message <= "row out of bounds").throw()
@@ -271,7 +262,6 @@ _bwWorker buf col row text idx style len =
 ///@ Notes: truncates at right edge; wide chars (width 2) occupy 2 cells,
 ///@   second cell is a space placeholder with the same style; width 0
 ///@   graphemes (combining marks / control) are skipped.
-///@ Since: a.6
 BufferWrite buf col row text style =
   | col < 1 |> Error(type <= "RendererOutOfBounds", message <= "col out of bounds").throw()
   | row < 1 |> Error(type <= "RendererOutOfBounds", message <= "row out of bounds").throw()
@@ -305,7 +295,6 @@ _frRowWorker buf col0 row0 curRow width height cell =
 => :@()
 
 ///@ Purpose: Fill a rectangular region with a cell
-///@ Since: a.6
 BufferFillRect buf col row width height cell =
   | col < 1 |> Error(type <= "RendererOutOfBounds", message <= "col out of bounds").throw()
   | row < 1 |> Error(type <= "RendererOutOfBounds", message <= "row out of bounds").throw()
@@ -349,7 +338,6 @@ _renderFullInner buf =
 => :Str
 
 ///@ Purpose: Render the entire buffer as an ANSI string
-///@ Since: a.6
 RenderFull buf =
   | buf.cols == 0 |> ""
   | buf.rows == 0 |> ""
@@ -416,7 +404,6 @@ _diffFullFallback =
 => :@()
 
 ///@ Purpose: Generate a minimal list of diff operations between two buffers
-///@ Since: a.6
 BufferDiff prev next =
   | prev.cols == next.cols |>
     | prev.rows == next.rows |> _diffSameSize(prev, next)
@@ -446,7 +433,6 @@ _roWorker ops idx total acc =
 => :Str
 
 ///@ Purpose: Convert a list of DiffOps to an ANSI string
-///@ Since: a.6
 RenderOps ops =
   _roWorker(ops, 0, ops.length(), "")
 => :Str
@@ -454,7 +440,6 @@ RenderOps ops =
 // -- RenderFrame --
 
 ///@ Purpose: Compare prev and next buffers, produce minimal ANSI output
-///@ Since: a.6
 RenderFrame prev next =
   diff <= BufferDiff(prev, next)
   | diff.requires_full == true |> @(text <= RenderFull(next), next <= next)

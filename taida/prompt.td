@@ -15,7 +15,6 @@
 // -- PromptMode --
 
 ///@ Purpose: Prompt display mode
-///@ Since: a.7
 PromptMode <= @(
   Normal   <= 0
   Password <= 1
@@ -24,7 +23,6 @@ PromptMode <= @(
 // -- PromptOptions --
 
 ///@ Purpose: Prompt configuration options
-///@ Since: a.7
 PromptOptions <= @(
   prompt      <= ""
   initial     <= ""
@@ -37,7 +35,6 @@ PromptOptions <= @(
 // -- CompletionState --
 
 ///@ Purpose: Completion candidates state (v1 minimal)
-///@ Since: a.7
 CompletionState <= @(
   items    <= @[]
   selected <= 0
@@ -47,7 +44,6 @@ CompletionState <= @(
 // -- LineEditorAction --
 
 ///@ Purpose: Result action from LineEditorStep
-///@ Since: a.7
 LineEditorAction <= @(
   Editing   <= 0
   Submitted <= 1
@@ -57,7 +53,6 @@ LineEditorAction <= @(
 // -- LineEditorState --
 
 ///@ Purpose: Line editor internal state (pure, no side effects)
-///@ Since: a.7
 LineEditorState <= @(
   text           <= ""
   cursor         <= 0
@@ -74,7 +69,6 @@ LineEditorState <= @(
 // -- LineEditorNew --
 
 ///@ Purpose: Create a new LineEditorState from options
-///@ Since: a.7
 LineEditorNew opts =
   LineEditorState(text <= opts.initial, cursor <= opts.initial.length(), prompt <= opts.prompt, mode <= opts.mode, placeholder <= opts.placeholder, history <= opts.history, history_index <= -1, history_saved <= "", completion <= CompletionState, action <= LineEditorAction.Editing)
 => :@()
@@ -128,7 +122,6 @@ _makeStateHist text cursor state histIdx histSaved action =
 // -- LineEditorStep --
 
 ///@ Purpose: Process one key event and return the next state
-///@ Since: a.7
 LineEditorStep state key =
   If[state.action == LineEditorAction.Editing, _stepEditing(state, key), state]()
 => :@()
@@ -220,7 +213,6 @@ _stepHistoryNextLoad state newIdx =
 
 ///@ Purpose: Generate display string from current state
 ///@ Returns: @(line <= "", cursor_col <= 1)
-///@ Since: a.7
 LineEditorRender state =
   displayText <= _getDisplayText(state)
   promptWidth <= DisplayWidth(state.prompt)

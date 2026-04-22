@@ -19,7 +19,6 @@
 
 ///@ Purpose: Unicode width category enum pack
 ///@ AI-Context: Compare with MeasureGrapheme result `mode` field.
-///@ Since: a.6
 WidthMode <= @(
   Narrow    <= 0
   Wide      <= 1
@@ -83,7 +82,6 @@ _isControl cp =
 ///@ Params:
 ///@   text: Str -- the text to measure (only the first grapheme is measured)
 ///@ Returns: @(width <= 0, mode <= WidthMode.Narrow)
-///@ Since: a.6
 MeasureGrapheme text =
   If[text == "", @(width <= 0, mode <= WidthMode.Zero), _measureGraphemeInner(text)]()
 => :@(width: Int, mode: Int)
@@ -103,7 +101,6 @@ _measureGraphemeInner text =
 ///@ Params:
 ///@   text: Str -- the text to measure
 ///@ Returns: Int -- display width in cells
-///@ Since: a.6
 // Combined loop + step in single function to avoid forward references
 // in the facade module loader (which evaluates top-to-bottom without hoisting).
 _dwCalc src idx acc len =
@@ -126,7 +123,6 @@ DisplayWidth text =
 ///@ Params:
 ///@   text: Str -- the text to normalize
 ///@ Returns: Str -- normalized text
-///@ Since: a.6
 _normLoop src idx acc len =
   | idx == len |> acc
   | _ |>
@@ -155,7 +151,6 @@ NormalizeCellText text =
 ///@   text: Str -- the text to truncate
 ///@   width: Int -- maximum display width
 ///@ Returns: Str -- truncated text
-///@ Since: a.6
 _twLoop src idx acc remaining len =
   | idx == len |> acc
   | remaining < 1 |> acc
@@ -181,7 +176,6 @@ TruncateWidth text width =
 ///@   text: Str -- the text to pad
 ///@   width: Int -- target display width
 ///@ Returns: Str -- padded text
-///@ Since: a.6
 _padLoop s remaining =
   | remaining < 1 |> s
   | _ |> _padLoop(s + " ", remaining - 1)

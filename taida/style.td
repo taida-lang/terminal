@@ -13,7 +13,6 @@
 ///@ AI-Context: Pass to Stylize fg / bg arguments.
 ///@ Example:
 ///@   stdout(Stylize("hello", @(fg <= Color.red)))
-///@ Since: a.5
 Color <= @(
   black          <= "black"
   red            <= "red"
@@ -97,7 +96,6 @@ _appendCode acc code =
 ///@ Example:
 ///@   stdout(ResetStyle())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 ResetStyle =
   "\x1b[0m"
 => :Str
@@ -114,7 +112,6 @@ ResetStyle =
 ///@ Example:
 ///@   stdout(Stylize("hello", @(fg <= Color.red, bold <= true)))
 ///@ AI-SideEffects: none
-///@ Since: a.5
 Stylize text opts =
   c1 <= _safeFgCode(opts.fg)
   c2 <= If[opts.bg == "", c1, _appendCode(c1, _safeBgCode(opts.bg))]()
@@ -129,12 +126,10 @@ Stylize text opts =
 
 ///@ Purpose: 256-color index (0-255)
 ///@ AI-Context: Pass to Stylize256 fg / bg. index -1 means no color.
-///@ Since: a.6
 Color256 <= @(index <= 0)
 
 ///@ Purpose: RGB color (each component 0-255)
 ///@ AI-Context: Pass to StylizeRgb fg / bg. All -1 means no color.
-///@ Since: a.6
 ColorRgb <= @(r <= 0, g <= 0, b <= 0)
 
 // -- Internal: 256-color SGR code builder --
@@ -218,7 +213,6 @@ _validateRgbB color label prev =
 ///@ Returns: Str
 ///@ Throws:
 ///@   StylizeInvalidColor: index out of 0-255 range
-///@ Since: a.6
 Stylize256 text opts =
   // Validate indices first (these throw on invalid values)
   vfg <= _validate256(opts.fg.index, "foreground")
@@ -241,7 +235,6 @@ Stylize256 text opts =
 ///@ Returns: Str
 ///@ Throws:
 ///@   StylizeInvalidColor: r/g/b out of 0-255 range
-///@ Since: a.6
 StylizeRgb text opts =
   // Validate RGB components (these throw on invalid values)
   vfr <= _validateRgbFull(opts.fg, "foreground")

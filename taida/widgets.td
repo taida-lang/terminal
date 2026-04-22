@@ -19,7 +19,6 @@ _SPINNER_FRAMES <= @["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "�
 _SPINNER_FRAME_COUNT <= 10
 
 ///@ Purpose: Spinner state
-///@ Since: a.7
 SpinnerState <= @(
   frame <= 0
   label <= ""
@@ -27,7 +26,6 @@ SpinnerState <= @(
 )
 
 ///@ Purpose: Advance the spinner to the next frame
-///@ Since: a.7
 SpinnerNext state =
   If[state.done == true, state, _spinnerNextInner(state)]()
 => :@()
@@ -40,7 +38,6 @@ _spinnerNextInner state =
 => :@()
 
 ///@ Purpose: Render the spinner as a display string
-///@ Since: a.7
 SpinnerRender state =
   If[state.done == true, _spinnerDoneText(state), _spinnerActiveText(state)]()
 => :Str
@@ -57,7 +54,6 @@ _spinnerActiveText state =
 // -- Progress Bar --
 
 ///@ Purpose: Progress bar options
-///@ Since: a.7
 ProgressOptions <= @(
   width           <= 20
   complete_char   <= "#"
@@ -68,7 +64,6 @@ ProgressOptions <= @(
 
 ///@ Purpose: Render a progress bar string
 ///@ Throws: ProgressInvalidTotal if total < 1, ProgressInvalidCurrent if current < 0
-///@ Since: a.7
 ProgressBar current total opts =
   | total < 1   |> Error(type <= "ProgressInvalidTotal", message <= "total must be >= 1").throw()
   | current < 0 |> Error(type <= "ProgressInvalidCurrent", message <= "current must be >= 0").throw()
@@ -99,7 +94,6 @@ _repeatLoop acc ch remaining =
 // -- Status Line --
 
 ///@ Purpose: Generate a status line with left/right text
-///@ Since: a.7
 StatusLine left right width =
   If[width == 0, left + right, _statusLineInner(left, right, width)]()
 => :Str

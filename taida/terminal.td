@@ -104,7 +104,6 @@ KeyKind <= @(
 ///@   stdout(size.cols)
 ///@   stdout(size.rows)
 ///@ AI-SideEffects: ioctl システムコールを発行する（読み取り専用、副作用なし）
-///@ Since: a.1
 TerminalSize <= terminalSize
 
 ///@ Purpose: キーボードから1キー分の入力を読み取る（raw モード）
@@ -119,7 +118,6 @@ TerminalSize <= terminalSize
 ///@   key.kind |== KeyKind.Escape => stdout("Escaped!")
 ///@ AI-SideEffects: stdin を一時的に raw モードに変更し、RAII で自動復元する
 ///@ AI-Context: ブロッキング呼び出し。1キー読み取り後に raw モードを解除して返る。
-///@ Since: a.1
 ReadKey      <= readKey
 
 ///@ Purpose: 指定ストリームが TTY かどうかを判定する
@@ -132,7 +130,6 @@ ReadKey      <= readKey
 ///@   interactive <= IsTerminal[]("stdin")
 ///@   stdout(interactive.toString())
 ///@ AI-SideEffects: `isatty` システムコールを発行する（読み取り専用、副作用なし）
-///@ Since: a.4
 IsTerminal   <= isTerminal
 
 // ── Raw Mode (TM-2d) ────────────────────────────────────────────
@@ -150,7 +147,6 @@ IsTerminal   <= isTerminal
 ///@ AI-SideEffects: stdin の termios を変更する。RawModeLeave で復元必須。
 ///@ AI-Context: TUI アプリで RawModeEnter → ReadKey xN → RawModeLeave の
 ///@   パターンに使う。raw モード中の ReadKey は自身の enter/leave をスキップする。
-///@ Since: a.5
 RawModeEnter <= rawModeEnter
 
 ///@ Purpose: stdin を raw モードから復元する
@@ -163,7 +159,6 @@ RawModeEnter <= rawModeEnter
 ///@   key <= ReadKey[]()
 ///@   RawModeLeave[]()
 ///@ AI-SideEffects: stdin の termios を復元する
-///@ Since: a.5
 RawModeLeave <= rawModeLeave
 
 // ── Screen / Cursor / Style facade imports (TM-2f/2g/2h) ────────
@@ -192,7 +187,6 @@ RawModeLeave <= rawModeLeave
 ///@   event.kind |== EventKind.Key => stdout("Key event")
 ///@   event.kind |== EventKind.Mouse => stdout("Mouse event")
 ///@   event.kind |== EventKind.Resize => stdout("Resize event")
-///@ Since: a.5
 EventKind <= @(
   Key     <= 0
   Mouse   <= 1
@@ -206,7 +200,6 @@ EventKind <= @(
 ///@   event <= ReadEvent[]()
 ///@   event.kind |== EventKind.Mouse =>
 ///@     event.mouse.kind |== MouseKind.Down => stdout("Click!")
-///@ Since: a.5
 MouseKind <= @(
   Down      <= 0
   Up        <= 1
@@ -237,7 +230,6 @@ MouseKind <= @(
 ///@   RawModeLeave[]()
 ///@ AI-SideEffects: ブロッキング呼び出し。stdin + SIGWINCH を poll で多重化。
 ///@ AI-Context: raw モード必須。ReadKey の上位互換。
-///@ Since: a.5
 ReadEvent <= readEvent
 
 // ── Write (TMB-016) ────────────────────────────────────────────
@@ -258,7 +250,6 @@ ReadEvent <= readEvent
 ///@ AI-Context: `stdout()` builtin は push 単位で `\n` を暗黙追加する行指向 I/O のため、
 ///@   ANSI エスケープを連続送信する TUI 用途にはこの Write[]() を使う。
 ///@   non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
-///@ Since: a.6
 Write <= write
 
 // ── Prompt / Line Editor facade imports (TM-5a..5f) ─────────────

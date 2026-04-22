@@ -26,8 +26,6 @@
 stdout(ClearScreen())
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -42,8 +40,6 @@ stdout(ClearScreen())
 ```taida
 stdout(ClearLine())
 ```
-
-**Since**: a.5
 
 **AI-SideEffects**:
 - none
@@ -60,8 +56,6 @@ stdout(ClearLine())
 stdout(AltScreenEnter())
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -76,8 +70,6 @@ stdout(AltScreenEnter())
 ```taida
 stdout(AltScreenLeave())
 ```
-
-**Since**: a.5
 
 **AI-SideEffects**:
 - none
@@ -102,8 +94,6 @@ stdout(AltScreenLeave())
 stdout(CursorMoveTo(10, 5))
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -118,8 +108,6 @@ stdout(CursorMoveTo(10, 5))
 ```taida
 stdout(CursorHide())
 ```
-
-**Since**: a.5
 
 **AI-SideEffects**:
 - none
@@ -136,8 +124,6 @@ stdout(CursorHide())
 stdout(CursorShow())
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -153,8 +139,6 @@ stdout(CursorShow())
 stdout(MouseTrackingEnter())
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -169,8 +153,6 @@ stdout(MouseTrackingEnter())
 ```taida
 stdout(MouseTrackingLeave())
 ```
-
-**Since**: a.5
 
 **AI-SideEffects**:
 - none
@@ -199,8 +181,6 @@ stdout(MouseTrackingLeave())
 | `opts` | `-` | - |
 
 **Returns**: `@()`
-
-**Since**: a.7
 
 ### _insertAt
 
@@ -273,8 +253,6 @@ stdout(MouseTrackingLeave())
 | `key` | `-` | - |
 
 **Returns**: `@()`
-
-**Since**: a.7
 
 ### _stepEditing
 
@@ -402,8 +380,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()` - @(line <= "", cursor_col <= 1)
 
-**Since**: a.7
-
 ### _getDisplayText
 
 | Parameter | Type | Description |
@@ -435,31 +411,21 @@ stdout(MouseTrackingLeave())
 
 > Prompt display mode
 
-**Since**: a.7
-
 ### PromptOptions
 
 > Prompt configuration options
-
-**Since**: a.7
 
 ### CompletionState
 
 > Completion candidates state (v1 minimal)
 
-**Since**: a.7
-
 ### LineEditorAction
 
 > Result action from LineEditorStep
 
-**Since**: a.7
-
 ### LineEditorState
 
 > Line editor internal state (pure, no side effects)
-
-**Since**: a.7
 
 # Module: renderer.td
 
@@ -590,8 +556,6 @@ stdout(MouseTrackingLeave())
 **Throws**:
 - RendererInvalidSize if cols < 1 or rows < 1
 
-**Since**: a.6
-
 ### BufferNew
 
 | Parameter | Type | Description |
@@ -613,8 +577,6 @@ stdout(MouseTrackingLeave())
 | `fill` | `-` | - |
 
 **Returns**: `@()`
-
-**Since**: a.6
 
 ### BufferResize
 
@@ -638,8 +600,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
-**Since**: a.6
-
 ### BufferPut
 
 > Write a single cell at a given position
@@ -655,8 +615,6 @@ stdout(MouseTrackingLeave())
 
 **Throws**:
 - RendererOutOfBounds
-
-**Since**: a.6
 
 ### _bwWorker
 
@@ -691,8 +649,6 @@ stdout(MouseTrackingLeave())
 - Notes: truncates at right edge; wide chars (width 2) occupy 2 cells,
 - second cell is a space placeholder with the same style; width 0
 - graphemes (combining marks / control) are skipped.
-
-**Since**: a.6
 
 ### _frColWorker
 
@@ -736,8 +692,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
-**Since**: a.6
-
 ### _rfCellWorker
 
 | Parameter | Type | Description |
@@ -776,8 +730,6 @@ stdout(MouseTrackingLeave())
 | `buf` | `-` | - |
 
 **Returns**: `Str`
-
-**Since**: a.6
 
 ### _diffCellsWorker
 
@@ -850,8 +802,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
-**Since**: a.6
-
 ### _renderOp
 
 | Parameter | Type | Description |
@@ -881,8 +831,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `Str`
 
-**Since**: a.6
-
 ### RenderFrame
 
 > Compare prev and next buffers, produce minimal ANSI output
@@ -894,21 +842,15 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
-**Since**: a.6
-
 ## Bindings
 
 ### Cell
 
 > One cell of data (character + style)
 
-**Since**: a.6
-
 ### CellStyle
 
 > Default style options for BufferWrite callers
-
-**Since**: a.4
 
 **AI-Context**:
 BufferWrite style arg must be this 6-field shape. Use
@@ -919,19 +861,13 @@ underline <= false, italic <= false)` — every field must be present.
 
 > Virtual screen buffer (row-major flat cells)
 
-**Since**: a.6
-
 ### DiffOpKind
 
 > Diff operation kind
 
-**Since**: a.6
-
 ### DiffOp
 
 > A single diff operation
-
-**Since**: a.6
 
 # Module: style.td
 
@@ -1000,8 +936,6 @@ underline <= false, italic <= false)` — every field must be present.
 stdout(ResetStyle())
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - none
 
@@ -1024,8 +958,6 @@ stdout(ResetStyle())
 ```taida
 stdout(Stylize("hello", @(fg <= Color.red, bold <= true)))
 ```
-
-**Since**: a.5
 
 **AI-SideEffects**:
 - none
@@ -1164,8 +1096,6 @@ stdout(Stylize("hello", @(fg <= Color.red, bold <= true)))
 **Throws**:
 - StylizeInvalidColor: index out of 0-255 range
 
-**Since**: a.6
-
 ### StylizeRgb
 
 > Apply RGB color styling to text
@@ -1180,8 +1110,6 @@ stdout(Stylize("hello", @(fg <= Color.red, bold <= true)))
 **Throws**:
 - StylizeInvalidColor: r/g/b out of 0-255 range
 
-**Since**: a.6
-
 ## Bindings
 
 ### Color
@@ -1194,8 +1122,6 @@ stdout(Stylize("hello", @(fg <= Color.red, bold <= true)))
 stdout(Stylize("hello", @(fg <= Color.red)))
 ```
 
-**Since**: a.5
-
 **AI-Context**:
 Pass to Stylize fg / bg arguments.
 
@@ -1203,16 +1129,12 @@ Pass to Stylize fg / bg arguments.
 
 > 256-color index (0-255)
 
-**Since**: a.6
-
 **AI-Context**:
 Pass to Stylize256 fg / bg. index -1 means no color.
 
 ### ColorRgb
 
 > RGB color (each component 0-255)
-
-**Since**: a.6
 
 **AI-Context**:
 Pass to StylizeRgb fg / bg. All -1 means no color.
@@ -1319,8 +1241,6 @@ stdout(size.cols)
 stdout(size.rows)
 ```
 
-**Since**: a.1
-
 **AI-SideEffects**:
 - ioctl システムコールを発行する（読み取り専用、副作用なし）
 
@@ -1342,8 +1262,6 @@ stdout(size.rows)
 key <= ReadKey[]()
 key.kind |== KeyKind.Escape => stdout("Escaped!")
 ```
-
-**Since**: a.1
 
 **AI-Context**:
 ブロッキング呼び出し。1キー読み取り後に raw モードを解除して返る。
@@ -1367,8 +1285,6 @@ interactive <= IsTerminal[]("stdin")
 stdout(interactive.toString())
 ```
 
-**Since**: a.4
-
 **AI-SideEffects**:
 - `isatty` システムコールを発行する（読み取り専用、副作用なし）
 
@@ -1390,8 +1306,6 @@ RawModeEnter[]()
 key <= ReadKey[]()
 RawModeLeave[]()
 ```
-
-**Since**: a.5
 
 **AI-Context**:
 TUI アプリで RawModeEnter → ReadKey xN → RawModeLeave の
@@ -1418,8 +1332,6 @@ key <= ReadKey[]()
 RawModeLeave[]()
 ```
 
-**Since**: a.5
-
 **AI-SideEffects**:
 - stdin の termios を復元する
 
@@ -1436,8 +1348,6 @@ event.kind |== EventKind.Mouse => stdout("Mouse event")
 event.kind |== EventKind.Resize => stdout("Resize event")
 ```
 
-**Since**: a.5
-
 **AI-Context**:
 ReadEvent の戻り値 `kind` フィールドと比較して使う。
 
@@ -1452,8 +1362,6 @@ event <= ReadEvent[]()
 event.kind |== EventKind.Mouse =>
 event.mouse.kind |== MouseKind.Down => stdout("Click!")
 ```
-
-**Since**: a.5
 
 **AI-Context**:
 ReadEvent の戻り値 `mouse.kind` フィールドと比較して使う。
@@ -1484,8 +1392,6 @@ stdout(MouseTrackingLeave[]())
 RawModeLeave[]()
 ```
 
-**Since**: a.5
-
 **AI-Context**:
 raw モード必須。ReadKey の上位互換。
 
@@ -1510,8 +1416,6 @@ Write[]("\x1b[2J\x1b[H")          // clear + home cursor
 Write[](CursorMoveTo[](10, 5))    // カーソル移動（改行なし）
 n <= Write[]("hello")             // n == 5
 ```
-
-**Since**: a.6
 
 **AI-Context**:
 `stdout()` builtin は push 単位で `\n` を暗黙追加する行指向 I/O のため、
@@ -1544,8 +1448,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `@()`
 
-**Since**: a.7
-
 ### _spinnerNextInner
 
 | Parameter | Type | Description |
@@ -1563,8 +1465,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 | `state` | `-` | - |
 
 **Returns**: `Str`
-
-**Since**: a.7
 
 ### _spinnerDoneText
 
@@ -1596,8 +1496,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Throws**:
 - ProgressInvalidTotal if total < 1, ProgressInvalidCurrent if current < 0
-
-**Since**: a.7
 
 ### _progressBarInner
 
@@ -1640,8 +1538,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `Str`
 
-**Since**: a.7
-
 ### _statusLineInner
 
 | Parameter | Type | Description |
@@ -1669,13 +1565,9 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 > Spinner state
 
-**Since**: a.7
-
 ### ProgressOptions
 
 > Progress bar options
-
-**Since**: a.7
 
 # Module: width.td
 
@@ -1734,8 +1626,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `@(width: Int, mode: Int)` - @(width <= 0, mode <= WidthMode.Narrow)
 
-**Since**: a.6
-
 ### _measureGraphemeInner
 
 | Parameter | Type | Description |
@@ -1757,8 +1647,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `Int` - Int -- display width in cells
 
-**Since**: a.6
-
 ### DisplayWidth
 
 | Parameter | Type | Description |
@@ -1779,8 +1667,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 | `len` | `-` | - |
 
 **Returns**: `Str` - Str -- normalized text
-
-**Since**: a.6
 
 ### _normFinish
 
@@ -1812,8 +1698,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `Str` - Str -- truncated text
 
-**Since**: a.6
-
 ### TruncateWidth
 
 | Parameter | Type | Description |
@@ -1834,8 +1718,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `Str` - Str -- padded text
 
-**Since**: a.6
-
 ### PadWidth
 
 | Parameter | Type | Description |
@@ -1850,8 +1732,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 ### WidthMode
 
 > Unicode width category enum pack
-
-**Since**: a.6
 
 **AI-Context**:
 Compare with MeasureGrapheme result `mode` field.

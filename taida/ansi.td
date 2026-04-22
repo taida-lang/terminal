@@ -18,7 +18,6 @@
 ///@ Example:
 ///@   stdout(ClearScreen())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 ClearScreen =
   "\x1b[2J\x1b[H"
 => :Str
@@ -28,7 +27,6 @@ ClearScreen =
 ///@ Example:
 ///@   stdout(ClearLine())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 ClearLine =
   "\x1b[2K\r"
 => :Str
@@ -38,7 +36,6 @@ ClearLine =
 ///@ Example:
 ///@   stdout(AltScreenEnter())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 AltScreenEnter =
   "\x1b[?1049h"
 => :Str
@@ -48,7 +45,6 @@ AltScreenEnter =
 ///@ Example:
 ///@   stdout(AltScreenLeave())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 AltScreenLeave =
   "\x1b[?1049l"
 => :Str
@@ -65,7 +61,6 @@ AltScreenLeave =
 ///@ Example:
 ///@   stdout(CursorMoveTo(10, 5))
 ///@ AI-SideEffects: none
-///@ Since: a.5
 CursorMoveTo col row =
   | col < 1 |> Error(type <= "CursorMoveInvalidPosition", message <= "col must be >= 1").throw()
   | row < 1 |> Error(type <= "CursorMoveInvalidPosition", message <= "row must be >= 1").throw()
@@ -77,7 +72,6 @@ CursorMoveTo col row =
 ///@ Example:
 ///@   stdout(CursorHide())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 CursorHide =
   "\x1b[?25l"
 => :Str
@@ -87,7 +81,6 @@ CursorHide =
 ///@ Example:
 ///@   stdout(CursorShow())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 CursorShow =
   "\x1b[?25h"
 => :Str
@@ -99,7 +92,6 @@ CursorShow =
 ///@ Example:
 ///@   stdout(MouseTrackingEnter())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 MouseTrackingEnter =
   "\x1b[?1000h\x1b[?1002h\x1b[?1006h"
 => :Str
@@ -109,7 +101,6 @@ MouseTrackingEnter =
 ///@ Example:
 ///@   stdout(MouseTrackingLeave())
 ///@ AI-SideEffects: none
-///@ Since: a.5
 MouseTrackingLeave =
   "\x1b[?1006l\x1b[?1002l\x1b[?1000l"
 => :Str
