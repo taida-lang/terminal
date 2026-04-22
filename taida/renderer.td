@@ -41,7 +41,7 @@ Cell <= @(
 ///@ AI-Context: BufferWrite style arg must be this 6-field shape. Use
 ///@   `CellStyle(fg <= "red", bg <= "", bold <= false, dim <= false,
 ///@   underline <= false, italic <= false)` — every field must be present.
-///@ Since: a.7
+///@ Since: a.4
 CellStyle <= @(
   fg        <= ""
   bg        <= ""

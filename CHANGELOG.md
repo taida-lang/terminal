@@ -6,7 +6,7 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
-## [Unreleased]
+## [@a.4] — 2026-04-22
 
 ### Fixed
 - **Renderer core が no-op だった問題を完全実装で解消** (TMB-019 / Phase 7).

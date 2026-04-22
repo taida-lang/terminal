@@ -908,7 +908,7 @@ stdout(MouseTrackingLeave())
 
 > Default style options for BufferWrite callers
 
-**Since**: a.7
+**Since**: a.4
 
 **AI-Context**:
 BufferWrite style arg must be this 6-field shape. Use
