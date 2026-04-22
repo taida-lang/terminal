@@ -176,7 +176,63 @@ RawModeLeave <= rawModeLeave
 
 >>> ./width.td => @(WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth)
 
->>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame)
+>>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize)
+
+// ── Renderer native dispatch (Phase 8 / TMB-020) ────────────────
+//
+// The 8 hot-path renderer entries (`bufferPut` / `bufferWrite` /
+// `bufferFillRect` / `bufferClear` / `bufferDiff` / `renderFull` /
+// `renderFrame` / `renderOps`) are pre-injected as addon sentinels
+// in this facade's env. We alias them under their public uppercase
+// names so callers continue to see the `@a.4` surface unchanged.
+// The pure-Taida types (`Cell` / `CellStyle` / `ScreenBuffer` /
+// `DiffOpKind` / `DiffOp` / `BufferNew` / `BufferResize`) come from
+// `renderer.td` above.
+
+///@ Purpose: 単一セルを (col, row) に書き込む
+///@ Returns: ScreenBuffer — 同じサイズの新パック
+///@ Throws: RendererOutOfBounds — col<1 / row<1 / col>cols / row>rows
+///@ AI-Context: 内部表現は Vec<Cell> に直接書き込むため O(1)。
+BufferPut <= bufferPut
+
+///@ Purpose: テキストを (col, row) から書き、表示幅で進める
+///@ Params:
+///@   buf:   ScreenBuffer
+///@   col:   Int (1-based, 範囲内必須)
+///@   row:   Int (1-based, 範囲内必須)
+///@   text:  Str
+///@   style: @(fg, bg, bold, dim, underline, italic) — 6 フィールド全て必要
+///@ Returns: ScreenBuffer
+///@ Throws: RendererOutOfBounds — 開始位置が範囲外
+///@ Notes: 右端で truncate；wide char は 2 セル使用、2 セル目はスペース placeholder；
+///@   width 0 grapheme (combining mark / control) はスキップ。
+BufferWrite <= bufferWrite
+
+///@ Purpose: 矩形領域を cell で塗りつぶす
+///@ Throws: RendererOutOfBounds — col<1 / row<1。width<1 / height<1 は no-op。
+BufferFillRect <= bufferFillRect
+
+///@ Purpose: バッファ全体を fill cell で塗りつぶす
+BufferClear <= bufferClear
+
+///@ Purpose: 2 つのバッファ間の最小 diff 操作リストを生成する
+///@ Returns: @(ops <= @[DiffOp...], requires_full <= Bool)
+///@ AI-Context: requires_full=true は cols/rows が異なる場合。
+///@   呼び出し側は RenderFull(next) にフォールバックする。
+BufferDiff <= bufferDiff
+
+///@ Purpose: バッファ全体を ANSI 文字列としてレンダリングする
+///@ Returns: Str — CursorHide + 行毎 CursorMoveTo + cell text + ResetStyle + CursorMoveTo(cursor) + (visible なら CursorShow)
+RenderFull <= renderFull
+
+///@ Purpose: DiffOp リストを ANSI 文字列に変換する
+///@ Returns: Str
+RenderOps <= renderOps
+
+///@ Purpose: prev / next の差分を最小 ANSI 出力として生成する
+///@ Returns: @(text <= Str, next <= ScreenBuffer)
+///@ AI-Context: requires_full なら RenderFull(next)、それ以外は RenderOps(diff.ops)。
+RenderFrame <= renderFrame
 
 // ── Event Types (TM-3a) ────────────────────────────────────────
 

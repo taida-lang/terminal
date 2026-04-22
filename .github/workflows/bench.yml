@@ -1,0 +1,90 @@
+name: Bench
+
+# TM-8g: Detect renderer performance regressions.
+#
+# This workflow has two layers:
+#
+#   1. **Hard gate (absolute budgets).** `scripts/check-bench-budget.sh`
+#      compares each budgeted bench median against the production
+#      acceptance budgets that drove TMB-020. Fail-close — if any bench
+#      blows its budget the job fails and the PR is blocked.
+#
+#   2. **Soft compare (committed baseline).**
+#      `scripts/compare-bench-baseline.sh` diffs the current measurement
+#      against `benches/baseline.json` (committed) and posts a markdown
+#      report to the job summary. Never fails — purely informational, so
+#      reviewers can see drift on every PR without false positives from
+#      runner noise.
+#
+# Why no `--save-baseline` artifact + cross-run download?
+#   Fork PRs cannot read other-run artifacts under the secrets-scoped
+#   token, and 90-day artifact retention would silently break compare
+#   on long-quiet branches. Committed baseline JSON sidesteps both.
+#   Re-baseline is an explicit, reviewable diff (`benches/baseline.json`).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: "true"
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    name: Renderer bench (budget gate + baseline compare)
+    runs-on: ubuntu-latest
+    # Allow the bench to take time but not run away. The full bench
+    # set finishes locally in well under 5 minutes; CI runners have
+    # roughly 2x the noise so 30 minutes is a generous ceiling.
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry + target
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            ~/.cargo/git/checkouts/
+            target/
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+            ${{ runner.os }}-cargo-
+
+      - name: Verify bench builds
+        run: cargo bench --bench renderer_perf --no-run
+
+      - name: Run renderer benches
+        # `--noplot` skips gnuplot/plotters output we never inspect in
+        # CI (the JSON estimates we read live next to it). Saves ~10s
+        # and a few MB per bench.
+        run: cargo bench --bench renderer_perf -- --noplot
+
+      - name: Hard gate — absolute budgets (must pass)
+        run: ./scripts/check-bench-budget.sh target/criterion
+
+      - name: Soft compare — vs committed baseline (informational)
+        if: always()
+        run: ./scripts/compare-bench-baseline.sh target/criterion >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload criterion report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-${{ github.run_id }}
+          path: target/criterion/
+          retention-days: 14
+          if-no-files-found: warn

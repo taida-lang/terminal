@@ -43,6 +43,17 @@ mod windows;
 #[cfg(any(unix, windows))]
 mod write;
 
+// `renderer` is platform-shared: pure value computation on
+// ScreenBuffer / Cell / DiffOp values, no syscalls. Introduced by
+// TMB-020 (Phase 8) to migrate the pure-Taida renderer core off the
+// O(N²) list-replace path.
+//
+// Stays `pub(crate)` so the addon entries above and the bench
+// re-export below can reach it without exposing the raw FFI
+// `*_impl` signatures (which would trip clippy::not_unsafe_ptr_arg_deref).
+#[cfg(any(unix, windows))]
+pub(crate) mod renderer;
+
 use core::ffi::c_char;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -298,6 +309,158 @@ extern "C" fn write_entry(
     }
 }
 
+// ── Renderer entries (Phase 8 / TMB-020) ───────────────────────
+//
+// All renderer entries are platform-shared: they perform pure value
+// computation on `ScreenBuffer` / `Cell` / `DiffOp` packs. No
+// syscalls, no signals, no termios. The split into
+// `buffer_*` (mutation) and `render_*` / `buffer_diff` (read-only)
+// matches the module split in `src/renderer/`.
+
+extern "C" fn buffer_put(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::ops::buffer_put_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn buffer_write(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::ops::buffer_write_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn buffer_fill_rect(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::ops::buffer_fill_rect_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn buffer_clear(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::ops::buffer_clear_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn buffer_diff(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::diff::buffer_diff_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn render_full(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::diff::render_full_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn render_frame(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::diff::render_frame_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn render_ops(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::diff::render_ops_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
 // ── Function table ───────────────────────────────────────────────
 
 /// Function table for the terminal package.
@@ -340,12 +503,79 @@ pub static TERMINAL_FUNCTIONS: &[TaidaAddonFunctionV1] = &[
         arity: 1,
         call: write_entry,
     },
+    // ── Phase 8 / TMB-020 (append-only, positions 7..=14) ─────
+    TaidaAddonFunctionV1 {
+        name: c"bufferPut".as_ptr() as *const c_char,
+        arity: 4,
+        call: buffer_put,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"bufferWrite".as_ptr() as *const c_char,
+        arity: 5,
+        call: buffer_write,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"bufferFillRect".as_ptr() as *const c_char,
+        arity: 6,
+        call: buffer_fill_rect,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"bufferClear".as_ptr() as *const c_char,
+        arity: 2,
+        call: buffer_clear,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"bufferDiff".as_ptr() as *const c_char,
+        arity: 2,
+        call: buffer_diff,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"renderFull".as_ptr() as *const c_char,
+        arity: 1,
+        call: render_full,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"renderFrame".as_ptr() as *const c_char,
+        arity: 2,
+        call: render_frame,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"renderOps".as_ptr() as *const c_char,
+        arity: 1,
+        call: render_ops,
+    },
 ];
 
 taida_addon::declare_addon! {
     name: "taida-lang/terminal",
     functions: TERMINAL_FUNCTIONS,
     init: terminal_init,
+}
+
+/// Bench-only re-exports for `benches/renderer_perf.rs`.
+///
+/// The criterion harness lives in a separate crate (the bench
+/// target) and needs to call `BufferState::write_text` /
+/// `render_full` etc. without setting up a real `TaidaHostV1`
+/// callback table. This module exposes the **internal** Rust
+/// functions (not the FFI entries) so the bench can measure the
+/// same hot path the production addon executes after marshalling.
+///
+/// **Not** part of the user-facing addon ABI.
+#[doc(hidden)]
+#[cfg(any(unix, windows))]
+pub mod renderer_bench_api {
+    pub use crate::renderer::diff::__bench::{diff_buffers, render_full, render_ops_to_string};
+    pub use crate::renderer::ops::__bench::write_text;
+    pub use crate::renderer::state::{BufferState, Cell, CellStyle, DiffOp, diff_kind};
+
+    /// Bench-only re-export of [`BufferState::compute_row_hashes`].
+    /// Lets the criterion harness mirror the production invariant
+    /// (`parse_buffer` always populates `row_hashes`) after a manual
+    /// `cells` mutation in the bench setup.
+    pub fn compute_row_hashes(buf: &mut BufferState) {
+        buf.compute_row_hashes();
+    }
 }
 
 /// Test-only re-exports.
@@ -432,14 +662,16 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_advertises_seven_functions() {
+    fn descriptor_advertises_fifteen_functions() {
         // v1 lock (3) + Phase 2 (rawModeEnter/Leave = 2) + Phase 3
-        // (readEvent = 1) + TMB-016 (write = 1) = 7. Adding an entry
-        // is append-only and bumps this count by one.
+        // (readEvent = 1) + TMB-016 (write = 1) + Phase 8 / TMB-020
+        // (bufferPut, bufferWrite, bufferFillRect, bufferClear,
+        // bufferDiff, renderFull, renderFrame, renderOps = 8) = 15.
+        // Adding an entry is append-only and bumps this count by one.
         let ptr = unsafe { taida_addon_get_v1() };
         let d = unsafe { &*ptr };
         assert_eq!(d.function_count as usize, TERMINAL_FUNCTIONS.len());
-        assert_eq!(d.function_count, 7);
+        assert_eq!(d.function_count, 15);
     }
 
     #[test]
@@ -469,7 +701,8 @@ mod tests {
         }
         // v1 entries must be at the same positions.
         assert_eq!(&seen[..3], &v1_expected[..]);
-        // Full table includes v1 + Phase 2 + Phase 3 + TMB-016.
+        // Full table includes v1 + Phase 2 + Phase 3 + TMB-016 +
+        // Phase 8 / TMB-020 (8 entries appended).
         let full_expected: Vec<(String, u32)> = vec![
             ("terminalSize".to_string(), 0u32),
             ("readKey".to_string(), 0),
@@ -478,6 +711,14 @@ mod tests {
             ("rawModeLeave".to_string(), 0),
             ("readEvent".to_string(), 0),
             ("write".to_string(), 1),
+            ("bufferPut".to_string(), 4),
+            ("bufferWrite".to_string(), 5),
+            ("bufferFillRect".to_string(), 6),
+            ("bufferClear".to_string(), 2),
+            ("bufferDiff".to_string(), 2),
+            ("renderFull".to_string(), 1),
+            ("renderFrame".to_string(), 2),
+            ("renderOps".to_string(), 1),
         ];
         assert_eq!(seen, full_expected);
     }
@@ -717,12 +958,14 @@ mod tests {
     /// - RawMode:       3001-3005
     /// - ReadEvent:     4001-4007
     /// - Write:         5001-5003 (TMB-016)
+    /// - Renderer:      6001-6005 (TMB-020 / Phase 8)
     #[test]
     #[cfg(unix)]
     fn error_code_ranges_are_frozen_unix() {
         use crate::event::err as ee;
         use crate::key::err as ke;
         use crate::raw_mode::err as re;
+        use crate::renderer::state::err as rne;
         use crate::size::err as se;
         use crate::tty::err as te;
         use crate::write::err as we;
@@ -763,6 +1006,13 @@ mod tests {
         assert_eq!(we::WRITE_FAILED, 5001);
         assert_eq!(we::WRITE_BUILD_VALUE, 5002);
         assert_eq!(we::WRITE_PANIC, 5003);
+
+        // Renderer error codes (TMB-020 / Phase 8)
+        assert_eq!(rne::RENDERER_INVALID_ARG, 6001);
+        assert_eq!(rne::RENDERER_OUT_OF_BOUNDS, 6002);
+        assert_eq!(rne::RENDERER_INVALID_SIZE, 6003);
+        assert_eq!(rne::RENDERER_BUILD_VALUE, 6004);
+        assert_eq!(rne::RENDERER_PANIC, 6005);
     }
 
     /// Cross-platform error name contract: the Taida-side error type names
@@ -807,6 +1057,12 @@ mod tests {
             "WriteFailed",
             "WriteBuildValue",
             "WritePanic",
+            // Renderer (TMB-020 / Phase 8)
+            "RendererInvalidArg",
+            "RendererOutOfBounds",
+            "RendererInvalidSize",
+            "RendererBuildValue",
+            "RendererPanic",
         ];
         // Verify no duplicates.
         let mut sorted = expected.to_vec();
@@ -820,6 +1076,6 @@ mod tests {
             );
         }
         // Count is the contract — adding a new error must update this.
-        assert_eq!(expected.len(), 27);
+        assert_eq!(expected.len(), 32);
     }
 }

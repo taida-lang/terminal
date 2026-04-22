@@ -187,7 +187,7 @@ cargo build
 ### Test
 
 ```bash
-cargo test                    # Rust unit + integration tests (360)
+cargo test                    # Rust unit + integration tests (411)
 ./scripts/smoke-test.sh       # Taida facade smoke test
 ```
 

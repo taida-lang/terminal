@@ -1,0 +1,30 @@
+{
+  "_comment": "Bench baseline (TM-8g). Median nanoseconds for the budgeted benches in benches/renderer_perf.rs, captured 2026-04-23 after TMB-021 (row_hashes fast-path). This file feeds scripts/compare-bench-baseline.sh — an *informational* PR diff report only. The hard fail gate is driven by the hard-coded absolute budgets in scripts/check-bench-budget.sh; budgets are deliberately NOT stored here so a baseline-refresh PR cannot accidentally relax the gate. Re-baseline procedure: run benches locally, copy median.point_estimate from target/criterion/<bench>/new/estimates.json into the median_ns fields below, bump captured/captured_machine, and document the rationale in CHANGELOG.md.",
+  "captured": "2026-04-23",
+  "captured_after": "TMB-021 (row-hash fast-path)",
+  "captured_machine": "developer-laptop (CI runners are noisier; thresholds below tolerate that)",
+  "regression_warn_pct": 15,
+  "improvement_note_pct": 5,
+  "benches": {
+    "buffer_write_120chars_120x40": {
+      "median_ns": 2710,
+      "note": "BufferWrite 120 chars on 120x40"
+    },
+    "compose_pane_40rows_120x40": {
+      "median_ns": 104015,
+      "note": "40 rows x BufferWrite(120 chars) on 120x40 (Hachikuma composePane shape)"
+    },
+    "render_full_120x40": {
+      "median_ns": 16034,
+      "note": "RenderFull on 120x40 (resize / first paint path)"
+    },
+    "render_frame_identical_120x40": {
+      "median_ns": 34,
+      "note": "RenderFrame identical 120x40 (TMB-021 fast-path: row hashes match -> short-circuit)"
+    },
+    "render_frame_one_cell_diff_120x40": {
+      "median_ns": 20585,
+      "note": "RenderFrame 1-cell diff 120x40 (TMB-021 fast-path: 1 row descended into, 39 rows skipped)"
+    }
+  }
+}

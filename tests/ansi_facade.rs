@@ -441,9 +441,12 @@ fn raw_mode_non_tty_returns_error() {
     // We just verify that rawModeEnter returns an error status when
     // stdin is not a TTY, without inspecting the error payload.
     let functions = __test_only::functions();
-    // TMB-016 appended `write` as the 7th entry. The assertion pins
-    // the append-only contract: the count grows, never shrinks.
-    assert_eq!(functions.len(), 7);
+    // Function table is append-only: TMB-016 made it 7 entries
+    // (write at position 6); TMB-020 / Phase 8 appended 8 more
+    // renderer entries (positions 7..=14) for a total of 15. The
+    // assertion pins the append-only contract: the count grows,
+    // never shrinks.
+    assert_eq!(functions.len(), 15);
 
     // Find rawModeEnter by name.
     let mut raw_enter = None;

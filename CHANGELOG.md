@@ -6,6 +6,85 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
+## [@a.5] — Unreleased (Phase 8 / TMB-020)
+
+### Fixed
+- **Renderer core を Rust native に移管して O(N²) を解消** (TMB-020 / Phase 8).
+  `@a.4` の pure-Taida 実装は `BufferPut` 1 cell が `Take`/`Drop`/`Append`/`Concat`
+  4 連続 (各 O(N)) → 全体 O(N²) で、120×40 = 4800 cells で 1 frame の
+  描画に数秒要した (Hachikuma P-12-2 smoke で `composePane` 40×20 = 6081 ms /
+  R-2 目標 < 50 ms の 121× 超過)。Phase 8 で以下を Rust native (`src/renderer/`)
+  へ移管:
+  - `BufferPut` / `BufferWrite` / `BufferFillRect` / `BufferClear` —
+    内部表現 `Vec<Cell>` を **直接 mutate** (clone-once + in-place write)
+    することで cell 毎 O(1)。
+  - `BufferDiff` — `Vec<Cell>` を線形走査して `DiffOp` リストを生成 O(N)。
+  - `RenderFull` — `String::with_capacity` で pre-allocate し、ANSI literal
+    を直接 push、行毎に `CursorMoveTo` を emit。
+  - `RenderOps` / `RenderFrame` — DiffOp → ANSI を Rust で展開。
+  Pure-Taida facade (`taida/renderer.td`) は型定義 (`Cell` / `CellStyle` /
+  `ScreenBuffer` / `DiffOpKind` / `DiffOp`) と `BufferNew` / `BufferResize`
+  のみ残し、native dispatch alias (`BufferPut <= bufferPut` 他 8 entries) は
+  `taida/terminal.td` に集約。
+
+### Added
+- **Function table を 7 → 15 entries に拡張** (append-only, ABI v1 lock 維持):
+  - `bufferPut` (arity 4), `bufferWrite` (5), `bufferFillRect` (6),
+    `bufferClear` (2), `bufferDiff` (2), `renderFull` (1),
+    `renderFrame` (2), `renderOps` (1).
+  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
+- **Renderer error band 6xxx** — `RendererInvalidArg` (6001),
+  `RendererOutOfBounds` (6002), `RendererInvalidSize` (6003),
+  `RendererBuildValue` (6004), `RendererPanic` (6005). 既存 1xxx-5xxx と
+  非衝突で deterministic error を返す。
+- **`benches/renderer_perf.rs`** — criterion による 7 ベンチ (TMB-021 解消後 5/5 budget 達成):
+  | bench | budget | measured |
+  |-------|--------|----------|
+  | `buffer_write_120chars 120×40` | < 500 µs | 2.7 µs |
+  | `compose_pane_40rows 120×40` | < 5 ms | 104 µs |
+  | `render_full 120×40` | < 5 ms | 16 µs |
+  | `render_frame_identical 120×40` | < 100 µs | **34 ns** |
+  | `render_frame_one_cell_diff 120×40` | < 2 ms | 20.6 µs |
+
+  pure-Taida 比 (composePane 40×20 = 6081 ms → 104 µs) で 58000× 改善、
+  Hachikuma R-2 (50 ms 目標) は十分にクリア。`render_frame_identical` は
+  TMB-021 (row-hash fast-path) で 808 µs → 34 ns へ 23000× 改善し全 5 ベンチが
+  budget 内に収まった。
+
+- **CI bench regression gate** (TM-8g): `.github/workflows/bench.yml` を新設。
+  `cargo bench --bench renderer_perf -- --noplot` を実行し、5 budgeted bench の
+  median を `scripts/check-bench-budget.sh` で絶対 budget と照合 (超過で fail)。
+  並行して `scripts/compare-bench-baseline.sh` が `benches/baseline.json`
+  (committed) との差分を markdown table で job summary に出力 (情報レポート、
+  fail させない)。`--save-baseline` artifact を介した cross-run 比較は fork PR の
+  secrets 制約と 90 日 retention 切れを避けるため採用せず、committed baseline
+  方式 (PR diff として再ベースライン操作がレビュー可能) を選択。CI runner の
+  noise (±15%) を考慮し、絶対 budget による hard gate と相対比較 (warning > 15%、
+  improvement > 5%) を分離している。
+
+### Internal
+- **`src/renderer/state.rs`** — `BufferState` (`Vec<Cell>`) + 全ての pack
+  ↔ Vec marshalling primitive。
+- **`src/renderer/ops.rs`** — `buffer_put_impl` / `buffer_write_impl` /
+  `buffer_fill_rect_impl` / `buffer_clear_impl` の addon entry と内部の
+  `write_text` / `fill_rect` / `clear_buffer` mutating helper。Phase 4
+  width policy (combining / wide / control) を Rust に複製。
+- **`src/renderer/diff.rs`** — `buffer_diff_impl` / `render_full_impl` /
+  `render_ops_impl` / `render_frame_impl` の addon entry と内部の
+  `diff_buffers` / `render_full` / `render_ops_to_string` 計算関数。
+  ANSI literal (`CursorHide`/`Show`, `ClearLine`, `ResetStyle`,
+  16色 SGR fg/bg palette) を facade と byte-stable に複製。
+- **`renderer_bench_api`** — bench 専用に内部関数を `#[doc(hidden)]` 経由で
+  re-export。FFI marshalling コストをスキップして hot path を直接測定。
+- 全 addon entry に `panic::catch_unwind` バリアを設置 (FFI 境界での
+  unwind を阻止)。
+
+### Tests
+- 367 → 411 PASS (+44 unit tests in `renderer/{state,ops,diff}`)。
+- 既存テスト (`examples/smoke_test.td` の 21 renderer assertion / 
+  `tests/renderer_smoke.rs`) は機能後退なし。
+- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` clean。
+
 ## [@a.4] — 2026-04-22
 
 ### Fixed

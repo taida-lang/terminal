@@ -11,6 +11,15 @@ rawModeEnter = 0
 rawModeLeave = 0
 readEvent = 0
 write = 1
+# Phase 8 / TMB-020 — renderer native migration (append-only)
+bufferPut = 4
+bufferWrite = 5
+bufferFillRect = 6
+bufferClear = 2
+bufferDiff = 2
+renderFull = 1
+renderFrame = 2
+renderOps = 1
 
 [library.prebuild]
 url = "https://github.com/taida-lang/terminal/releases/download/{version}/lib{name}-{target}.{ext}"
