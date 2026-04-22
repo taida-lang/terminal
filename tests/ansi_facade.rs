@@ -443,10 +443,11 @@ fn raw_mode_non_tty_returns_error() {
     let functions = __test_only::functions();
     // Function table is append-only: TMB-016 made it 7 entries
     // (write at position 6); TMB-020 / Phase 8 appended 8 more
-    // renderer entries (positions 7..=14) for a total of 15. The
-    // assertion pins the append-only contract: the count grows,
-    // never shrinks.
-    assert_eq!(functions.len(), 15);
+    // renderer entries (positions 7..=14) for a total of 15;
+    // TMB-022 / Phase 9 appended `bufferBlit` at position 15
+    // for a total of 16. The assertion pins the append-only
+    // contract: the count grows, never shrinks.
+    assert_eq!(functions.len(), 16);
 
     // Find rawModeEnter by name.
     let mut raw_enter = None;

@@ -7,7 +7,7 @@
 // Run: taida examples/smoke_test.td
 //   (requires the package to be installed or symlinked into .taida/deps/)
 
->>> taida-lang/terminal => @(KeyKind, Color, ResetStyle, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, MouseTrackingEnter, MouseTrackingLeave, Stylize, Color256, ColorRgb, Stylize256, StylizeRgb, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferPut, BufferWrite, BufferFillRect, BufferClear, BufferResize, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine, EventKind, MouseKind)
+>>> taida-lang/terminal => @(KeyKind, Color, ResetStyle, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, MouseTrackingEnter, MouseTrackingLeave, Stylize, Color256, ColorRgb, Stylize256, StylizeRgb, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferPut, BufferWrite, BufferFillRect, BufferBlit, BufferClear, BufferResize, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine, EventKind, MouseKind)
 
 // -- Type packs --
 stdout("KeyKind.Enter:" + KeyKind.Enter.toString())
@@ -151,6 +151,83 @@ stdout("RenderFrame.diff.len_gt0:" + If[frame_diff.text.length() > 0, "yes", "no
 // RenderFrame on identical buffers emits empty text
 frame_same <= RenderFrame(buf0, buf0)
 stdout("RenderFrame.same.empty:" + If[frame_same.text == "", "yes", "no"]())
+
+// -- BufferBlit (TMB-022 / Phase 9) --
+// Identity blit: 3×2 sub into 3×2 main at (1,1) → every cell overwritten.
+mainA <= BufferNew(3, 2)
+subA  <= BufferWrite(BufferNew(3, 2), 1, 1, "abc", plain)
+subA2 <= BufferWrite(subA, 1, 2, "def", plain)
+blit0 <= BufferBlit(mainA, subA2, 1, 1)
+blit0.cells.get(0) ]=> blit0_0
+blit0.cells.get(5) ]=> blit0_5
+stdout("BufferBlit.identity.0:" + blit0_0.text)
+stdout("BufferBlit.identity.5:" + blit0_5.text)
+
+// Partial blit: 2×1 sub into 5×3 main at (3,2) → sub lands at cells[7], [8].
+mainB <= BufferNew(5, 3)
+subB  <= BufferWrite(BufferNew(2, 1), 1, 1, "XY", plain)
+blit1 <= BufferBlit(mainB, subB, 3, 2)
+blit1.cells.get(7) ]=> blit1_7
+blit1.cells.get(8) ]=> blit1_8
+blit1.cells.get(9) ]=> blit1_9
+stdout("BufferBlit.partial.7:" + blit1_7.text)
+stdout("BufferBlit.partial.8:" + blit1_8.text)
+stdout("BufferBlit.partial.untouched:" + blit1_9.text)
+
+// Out-of-bounds clip: 3×3 sub into 4×4 main at (3,3) → only 2×2 copied.
+mainC <= BufferNew(4, 4)
+subC  <= BufferFillRect(BufferNew(3, 3), 1, 1, 3, 3, fillCell)
+blit2 <= BufferBlit(mainC, subC, 3, 3)
+// Last cell of row 3 = index 11 (row-major, 4-wide, row 3 starts at 8).
+// Cells at (3,3) / (4,3) / (3,4) / (4,4) → indices 10 / 11 / 14 / 15.
+blit2.cells.get(10) ]=> blit2_10
+blit2.cells.get(15) ]=> blit2_15
+// (5,3) would be outside main (only 4 cols) — assert (4,3) came through.
+blit2.cells.get(9) ]=> blit2_9
+stdout("BufferBlit.clip.10:" + blit2_10.text)
+stdout("BufferBlit.clip.15:" + blit2_15.text)
+stdout("BufferBlit.clip.untouched:" + blit2_9.text)
+
+// Style preserve: blit a styled sub into main, check fg carries over.
+mainD <= BufferNew(3, 1)
+subD  <= BufferWrite(BufferNew(3, 1), 1, 1, "R", red)
+blit3 <= BufferBlit(mainD, subD, 1, 1)
+blit3.cells.get(0) ]=> blit3_0
+stdout("BufferBlit.style_fg:" + blit3_0.fg)
+
+// Start past main right edge → no-op (main returned unchanged).
+mainE <= BufferWrite(BufferNew(3, 1), 1, 1, "ORG", plain)
+blit4 <= BufferBlit(mainE, subB, 10, 1)
+blit4.cells.get(0) ]=> blit4_0
+blit4.cells.get(1) ]=> blit4_1
+blit4.cells.get(2) ]=> blit4_2
+stdout("BufferBlit.past_right.0:" + blit4_0.text)
+stdout("BufferBlit.past_right.1:" + blit4_1.text)
+stdout("BufferBlit.past_right.2:" + blit4_2.text)
+
+// Wide-char boundary (TMB-022 HOLD fix):
+// sub lays a wide-char lead at its rightmost in-bounds column — when
+// the placeholder would spill past main's right edge, the lead must
+// also be dropped (matches BufferWrite right-edge policy). Before the
+// fix the lead wrote at main.cols and the placeholder got clipped,
+// leaving a half wide char that broke ScreenBuffer's pairing invariant.
+// Layout: mainF is 4 cols wide, sub is 2 cols "漢" (lead + placeholder).
+// Place sub at col 4 → lead lands at col 4 (= main.cols), placeholder
+// would need col 5 (doesn't exist) → lead drops, main cell 4 stays ".".
+mainF  <= BufferFillRect(BufferNew(4, 1), 1, 1, 4, 1, @(text <= ".", fg <= "", bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
+subF   <= BufferWrite(BufferNew(2, 1), 1, 1, "漢", plain)
+blit5  <= BufferBlit(mainF, subF, 4, 1)
+blit5.cells.get(3) ]=> blit5_3
+stdout("BufferBlit.wide_edge_drop.3:" + blit5_3.text)
+
+// Positive control: same sub placed so both lead AND placeholder fit
+// → wide char preserved and main cells 3/4 carry the pair.
+mainG  <= BufferFillRect(BufferNew(4, 1), 1, 1, 4, 1, @(text <= ".", fg <= "", bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
+blit6  <= BufferBlit(mainG, subF, 3, 1)
+blit6.cells.get(2) ]=> blit6_2
+blit6.cells.get(3) ]=> blit6_3
+stdout("BufferBlit.wide_inbounds.2:" + blit6_2.text)
+stdout("BufferBlit.wide_inbounds.3:" + blit6_3.text)
 
 stdout("PASS:renderer_ops")
 stdout("PASS:all_smoke_tests")

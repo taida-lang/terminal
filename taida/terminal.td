@@ -234,6 +234,24 @@ RenderOps <= renderOps
 ///@ AI-Context: requires_full なら RenderFull(next)、それ以外は RenderOps(diff.ops)。
 RenderFrame <= renderFrame
 
+///@ Purpose: sub バッファを main バッファの (col, row) 位置に合成する
+///@ Params:
+///@   main: ScreenBuffer — コピー先（結果はこの shape を保つ）
+///@   sub:  ScreenBuffer — コピー元
+///@   col:  Int (1-based) — main 内の左上 col。`sub` の (1,1) がここに lay-out される
+///@   row:  Int (1-based) — main 内の左上 row
+///@ Returns: ScreenBuffer — main と同じ cols/rows の新パック
+///@ Throws: RendererOutOfBounds — col<1 / row<1
+///@ Notes:
+///@   - main からはみ出す sub のセルは silently clip（BufferFillRect と同じ規約）。
+///@   - (col, row) が main の範囲外（右/下）を指すなら no-op（main をそのまま返す）。
+///@   - wide char placeholder cell（text=" " の 2 セル目）は sub からそのまま運ばれる。
+///@   - style 属性（fg/bg/bold/dim/underline/italic）はセル毎に保持される。
+///@ AI-Context: TUI の pane 合成用プリミティブ。pure-Taida ループで sub を main に
+///@   重ねると Taida の list index O(n) が効いて O(N²) になる（TMB-022）。
+///@   この native 実装は Vec<Cell> 上の線形 copy で O(N) に抑える。
+BufferBlit <= bufferBlit
+
 // ── Event Types (TM-3a) ────────────────────────────────────────
 
 ///@ Purpose: イベント種別を表す列挙パック（4バリアント）
@@ -322,4 +340,4 @@ Write <= write
 
 >>> ./widgets.td => @(SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
 
-<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, Write, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
+<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, Write, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, BufferBlit, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)

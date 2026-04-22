@@ -6,6 +6,76 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
+## [@a.6] — 2026-04-23 (Phase 9 / TMB-022)
+
+### Fixed
+- **`BufferBlit` native primitive を追加して下流の O(N²) pane 合成を解消** (TMB-022 / Phase 9).
+  `@a.5` で renderer core の per-cell 操作は O(1) 化された (TMB-020) が、sub
+  ScreenBuffer を main の指定位置に合成する「blit」操作は addon に無く、
+  Hachikuma の `src/tui/layout/compose.td::composePane` は pure-Taida で
+  sub のセルを走査せざるを得なかった。Taida の list index `xs.get(idx)`
+  は O(n) のため、4800 cells の composePane 全体が O(N²) に崩れ、120×40
+  で 1 frame = 48075 ms を計測 (`hachikuma/docs/smoke/perf_real_smoke.td`)。
+  R-2 (50 ms) を 961× 超過、ユーザ入力ごとに数十秒 freeze。Phase 9 で:
+  - `BufferBlit[](main, sub, col, row) -> ScreenBuffer` を Rust native 実装。
+    `main.cells` / `sub.cells` を `Vec<Cell>` の直接スライスコピーで O(N)
+    に抑える (1 cell あたり `Cell::clone()` のみ、per-cell allocation ゼロ)。
+  - main からはみ出した sub のセルは silently clip (`BufferFillRect` と
+    同等のクランプ規約)。
+  - wide char placeholder cell (`text=" "` の 2 セル目) は sub からそのまま
+    運ばれる — blit は cell レベルのコピーであり、幅を解釈し直さない。
+  - style attributes (`fg` / `bg` / `bold` / `dim` / `underline` / `italic`)
+    はセル毎に保持される。
+  - `(col, row)` が main の範囲外 (右/下) を指す場合は no-op (main をそのまま
+    返す)。`col < 1` / `row < 1` は `RendererOutOfBounds`。
+
+### Added
+- **Function table を 15 → 16 entries に拡張** (append-only, ABI v1 lock 維持):
+  - `bufferBlit` (arity 4, position 15) を append。既存 15 entries の
+    位置・arity は不変。
+  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
+- **`src/renderer/blit.rs`** — `buffer_blit_impl` FFI entry と内部の `blit_into`
+  mutating helper (Vec<Cell> の行毎スライスコピー)。`#[doc(hidden)]`
+  `__bench` re-export で criterion bench が内部関数を直接叩ける。
+- **`taida/terminal.td`** に `BufferBlit <= bufferBlit` dispatch alias、
+  `<<<` export に `BufferBlit` を追加。
+- **benches/renderer_perf.rs に 2 ベンチ追加** (TMB-022 budget 200 µs):
+  | bench | budget | measured |
+  |-------|--------|----------|
+  | `buffer_blit_identity 120×40` | < 200 µs | ~78 µs |
+  | `buffer_blit_partial 120×40 → 240×80` | < 200 µs | ~81 µs |
+
+  pure-Taida 比 (120×40 composePane 48075 ms → 78 µs) で ~616,000× 改善、
+  Hachikuma R-2 (50 ms 目標) を 640× 下回る。
+- **`scripts/check-bench-budget.sh`** の BUDGETS 配列に 2 エントリ追加
+  (5 → 7)、hard gate の対象を拡張。
+- **`examples/smoke_test.td`** に `BufferBlit` 7 種の assertion 追加
+  (identity / partial / out-of-bounds clip / style preserve / start past
+  right-edge no-op / wide-char right-edge drop / wide-char in-bounds
+  preserve)、`tests/renderer_smoke.rs` の `must_contain` に対応 marker
+  15 本を追記。Wide-char boundary smoke は HOLD review acceptance
+  (`.dev/TM_BLOCKERS.md` TMB-022) で要求。
+- **`benches/baseline.json`** を TMB-022 後に再キャプチャ (2 benches 追加、
+  既存 5 benches は ±1% 範囲で据え置き)。
+
+### Internal
+- **13 unit tests in `blit.rs`** — identity / partial / right-edge clip /
+  bottom-edge clip / past-right no-op / past-bottom no-op / style preserve /
+  wide char placeholder preserve / zero-size sub no-op / 120×40 overlay,
+  plus HOLD-review additions: wide-char lead drop at right edge when
+  placeholder spills / wide-char kept when fully in-bounds / drop does
+  not affect interior wide chars.
+- **Right-edge wide-char drop in `blit_into`** — mirrors `BufferWrite`
+  (`ops.rs::write_text` line ~138). When per-row clipping reduces the
+  copy to a width that ends on a wide-char lead, the lead is skipped
+  too so `ScreenBuffer`'s wide-char pairing invariant stays intact for
+  downstream `BufferDiff` / `RenderFull`. `ops::char_width` promoted to
+  `pub(crate)` and new `ops::cell_is_wide_lead` helper.
+- `renderer_bench_api` に `blit_into` を追加。
+- 既存のテーブルサイズアサーション (`descriptor_advertises_*_functions`、
+  `tests/ansi_facade.rs`、`tests/event_non_tty.rs`、`tests/read_key_non_tty.rs`)
+  を 15 → 16 に更新。
+
 ## [@a.5] — 2026-04-23 (Phase 8 / TMB-020)
 
 ### Fixed

@@ -461,6 +461,26 @@ extern "C" fn render_ops(
     }
 }
 
+// ── BufferBlit (Phase 9 / TMB-022) ────────────────────────────────
+
+extern "C" fn buffer_blit(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::blit::buffer_blit_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
 // ── Function table ───────────────────────────────────────────────
 
 /// Function table for the terminal package.
@@ -544,6 +564,12 @@ pub static TERMINAL_FUNCTIONS: &[TaidaAddonFunctionV1] = &[
         arity: 1,
         call: render_ops,
     },
+    // ── Phase 9 / TMB-022 (append-only, position 15) ──────────
+    TaidaAddonFunctionV1 {
+        name: c"bufferBlit".as_ptr() as *const c_char,
+        arity: 4,
+        call: buffer_blit,
+    },
 ];
 
 taida_addon::declare_addon! {
@@ -565,6 +591,7 @@ taida_addon::declare_addon! {
 #[doc(hidden)]
 #[cfg(any(unix, windows))]
 pub mod renderer_bench_api {
+    pub use crate::renderer::blit::__bench::blit_into;
     pub use crate::renderer::diff::__bench::{diff_buffers, render_full, render_ops_to_string};
     pub use crate::renderer::ops::__bench::write_text;
     pub use crate::renderer::state::{BufferState, Cell, CellStyle, DiffOp, diff_kind};
@@ -662,16 +689,17 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_advertises_fifteen_functions() {
+    fn descriptor_advertises_sixteen_functions() {
         // v1 lock (3) + Phase 2 (rawModeEnter/Leave = 2) + Phase 3
         // (readEvent = 1) + TMB-016 (write = 1) + Phase 8 / TMB-020
         // (bufferPut, bufferWrite, bufferFillRect, bufferClear,
-        // bufferDiff, renderFull, renderFrame, renderOps = 8) = 15.
+        // bufferDiff, renderFull, renderFrame, renderOps = 8) +
+        // Phase 9 / TMB-022 (bufferBlit = 1) = 16.
         // Adding an entry is append-only and bumps this count by one.
         let ptr = unsafe { taida_addon_get_v1() };
         let d = unsafe { &*ptr };
         assert_eq!(d.function_count as usize, TERMINAL_FUNCTIONS.len());
-        assert_eq!(d.function_count, 15);
+        assert_eq!(d.function_count, 16);
     }
 
     #[test]
@@ -702,7 +730,8 @@ mod tests {
         // v1 entries must be at the same positions.
         assert_eq!(&seen[..3], &v1_expected[..]);
         // Full table includes v1 + Phase 2 + Phase 3 + TMB-016 +
-        // Phase 8 / TMB-020 (8 entries appended).
+        // Phase 8 / TMB-020 (8 entries appended) + Phase 9 / TMB-022
+        // (bufferBlit appended at position 15).
         let full_expected: Vec<(String, u32)> = vec![
             ("terminalSize".to_string(), 0u32),
             ("readKey".to_string(), 0),
@@ -719,6 +748,7 @@ mod tests {
             ("renderFull".to_string(), 1),
             ("renderFrame".to_string(), 2),
             ("renderOps".to_string(), 1),
+            ("bufferBlit".to_string(), 4),
         ];
         assert_eq!(seen, full_expected);
     }

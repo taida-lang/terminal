@@ -47,7 +47,12 @@ fn arg_at<'a>(
 /// Width category for one Unicode scalar value. Mirrors
 /// `taida/width.td::MeasureGrapheme` — see module docs for why the
 /// table is duplicated.
-fn char_width(cp: u32) -> u32 {
+///
+/// `pub(crate)` so `renderer::blit` can reuse the policy for its
+/// right-edge wide-char drop check (TMB-022 HOLD review). This keeps
+/// the width table a single source of truth within the renderer
+/// module.
+pub(crate) fn char_width(cp: u32) -> u32 {
     if is_control(cp) {
         return 0;
     }
@@ -58,6 +63,21 @@ fn char_width(cp: u32) -> u32 {
         return 2;
     }
     1
+}
+
+/// Return true if `cell.text` is exactly one Unicode scalar value
+/// whose `char_width` is 2 — i.e. this cell is the lead of a wide-char
+/// pair. The trailing placeholder cell (typically `" "`) is **not**
+/// classified as wide here. Used by `renderer::blit` to decide whether
+/// copying a cell would spill a half wide char past the target's right
+/// edge, matching `BufferWrite`'s right-edge drop policy in the hot
+/// path above (line ~138).
+pub(crate) fn cell_is_wide_lead(text: &str) -> bool {
+    let mut chars = text.chars();
+    match (chars.next(), chars.next()) {
+        (Some(c), None) => char_width(c as u32) == 2,
+        _ => false,
+    }
 }
 
 fn is_control(cp: u32) -> bool {

@@ -20,6 +20,8 @@ bufferDiff = 2
 renderFull = 1
 renderFrame = 2
 renderOps = 1
+# Phase 9 / TMB-022 — sub-buffer blit (append-only)
+bufferBlit = 4
 
 [library.prebuild]
 url = "https://github.com/taida-lang/terminal/releases/download/{version}/lib{name}-{target}.{ext}"

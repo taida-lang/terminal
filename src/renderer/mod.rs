@@ -11,11 +11,14 @@
 //!   `buffer_clear` mutating entries.
 //! - [`diff`]: `buffer_diff` / `render_full` / `render_ops` /
 //!   `render_frame` immutable computations.
+//! - [`blit`]: `buffer_blit` sub→main composition entry (Phase 9 /
+//!   TMB-022).
 //!
 //! The split exists so the marshalling primitives can be reused by
 //! the criterion benches without pulling in the FFI dispatcher
 //! shape from `lib.rs`.
 
+pub mod blit;
 pub mod diff;
 pub mod ops;
 pub mod state;

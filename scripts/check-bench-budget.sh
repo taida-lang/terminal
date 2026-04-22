@@ -55,11 +55,13 @@ fi
 # excluded — they are sanity bench groups without an acceptance
 # criterion. They still run via cargo bench but are not gated.
 BUDGETS=(
-  "buffer_write_120chars_120x40:500000"        # 500 µs
-  "compose_pane_40rows_120x40:5000000"         # 5 ms
-  "render_full_120x40:5000000"                 # 5 ms
-  "render_frame_identical_120x40:100000"       # 100 µs
-  "render_frame_one_cell_diff_120x40:2000000"  # 2 ms
+  "buffer_write_120chars_120x40:500000"                 # 500 µs
+  "compose_pane_40rows_120x40:5000000"                  # 5 ms
+  "render_full_120x40:5000000"                          # 5 ms
+  "render_frame_identical_120x40:100000"                # 100 µs
+  "render_frame_one_cell_diff_120x40:2000000"           # 2 ms
+  "buffer_blit_identity_120x40:200000"                  # 200 µs (TMB-022)
+  "buffer_blit_partial_120x40_into_240x80:200000"       # 200 µs (TMB-022)
 )
 
 printf "%-44s %14s %14s %12s %s\n" "BENCH" "MEDIAN (ns)" "BUDGET (ns)" "USED %" "STATUS"

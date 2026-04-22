@@ -442,6 +442,7 @@ stdout(MouseTrackingLeave())
 - `BufferPut`
 - `BufferWrite`
 - `BufferFillRect`
+- `BufferBlit`
 - `RenderFull`
 - `BufferDiff`
 - `RenderOps`
@@ -691,6 +692,28 @@ stdout(MouseTrackingLeave())
 | `cell` | `-` | - |
 
 **Returns**: `@()`
+
+### BufferBlit
+
+> Composite sub onto main at (col, row); overflow clips; right-edge wide-char leads drop
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `main` | `ScreenBuffer` | target buffer |
+| `sub` | `ScreenBuffer` | source buffer to lay into main |
+| `col` | `Int` | 1-based column in main where sub's (1,1) lands |
+| `row` | `Int` | 1-based row in main where sub's (1,1) lands |
+
+**Returns**: `ScreenBuffer`
+
+**AI-Context**:
+- Cells of `sub` that overflow main's right/bottom edge are silently clipped.
+- If clipping would land a wide-char lead at main's right edge while its
+  trailing placeholder falls outside, the lead is dropped too — matches
+  `BufferWrite`'s right-edge policy and preserves `ScreenBuffer`'s
+  wide-char pairing invariant for downstream `BufferDiff` / `RenderFull`.
+- `(col, row)` past the main's bounds (to the right or below) → no-op.
+- `col < 1` or `row < 1` → `RendererOutOfBounds`.
 
 ### _rfCellWorker
 
@@ -1186,6 +1209,7 @@ Pass to StylizeRgb fg / bg. All -1 means no color.
 - `BufferPut`
 - `BufferWrite`
 - `BufferFillRect`
+- `BufferBlit`
 - `RenderFull`
 - `BufferDiff`
 - `RenderOps`
@@ -1736,20 +1760,22 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 **AI-Context**:
 Compare with MeasureGrapheme result `mode` field.
 
-# Native binding routes (Phase 8 / TMB-020)
+# Native binding routes (Phase 8 / TMB-020, Phase 9 / TMB-022)
 
-Eight renderer hot-path entries are implemented in the Rust addon
-(`src/renderer/{state,ops,diff}.rs`) and dispatched from the facade
+Nine renderer hot-path entries are implemented in the Rust addon
+(`src/renderer/{state,ops,diff,blit}.rs`) and dispatched from the facade
 through pre-injected addon sentinels. The public `<<<` surface in
-`taida/terminal.td` is unchanged from `@a.4`, but the implementation
-moved from pure Taida (O(N²) list-replace) to native (`Vec<Cell>`
-direct mutation) to fix TMB-020.
+`taida/terminal.td` is unchanged from `@a.4` except for the
+`BufferBlit` addition in `@a.6`, and the implementation moved from
+pure Taida (O(N²) list-replace) to native (`Vec<Cell>` direct
+mutation) to fix TMB-020 / TMB-022.
 
 ## Function table layout
 
-`native/addon.toml` declares 15 entries (append-only since `@a.3`'s
+`native/addon.toml` declares 16 entries (append-only since `@a.3`'s
 7-entry table). The first 7 (`terminalSize` through `write`) keep their
-v1 ABI position and arity. The 8 entries appended in `@a.5` are:
+v1 ABI position and arity. The 8 entries appended in `@a.5` plus the
+1 entry appended in `@a.6` are:
 
 | Sentinel (lowercase) | Arity | Public alias (uppercase) | Implementation |
 |----------------------|-------|--------------------------|----------------|
@@ -1761,6 +1787,7 @@ v1 ABI position and arity. The 8 entries appended in `@a.5` are:
 | `renderFull` | 1 | `RenderFull` | `src/renderer/diff.rs::render_full_impl` |
 | `renderFrame` | 2 | `RenderFrame` | `src/renderer/diff.rs::render_frame_impl` |
 | `renderOps` | 1 | `RenderOps` | `src/renderer/diff.rs::render_ops_impl` |
+| `bufferBlit` | 4 | `BufferBlit` | `src/renderer/blit.rs::buffer_blit_impl` |
 
 ## Dispatch placement
 

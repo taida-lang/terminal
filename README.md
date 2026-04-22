@@ -17,7 +17,7 @@ taida install taida-lang/terminal
   ClearScreen, CursorMoveTo, CursorHide, CursorShow,
   AltScreenEnter, AltScreenLeave, MouseTrackingEnter, MouseTrackingLeave,
   Stylize, Color, Stylize256, Color256, StylizeRgb, ColorRgb, ResetStyle,
-  DisplayWidth, BufferNew, RenderFull, RenderFrame,
+  DisplayWidth, BufferNew, BufferBlit, RenderFull, RenderFrame,
   LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressBar
 )
 ```
@@ -60,7 +60,7 @@ stdout(Stylize256[]("256", @(fg <= Color256(index <= 208))))
 stdout(StylizeRgb[]("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0))))
 ```
 
-## Exports (60 symbols)
+## Exports (61 symbols)
 
 ### Core (addon)
 
@@ -129,6 +129,7 @@ stdout(StylizeRgb[]("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0))))
 | `BufferPut` | `(buf, col, row, cell) -> ScreenBuffer` |
 | `BufferWrite` | `(buf, col, row, text, style?) -> ScreenBuffer` |
 | `BufferFillRect` | `(buf, col, row, width, height, cell) -> ScreenBuffer` |
+| `BufferBlit` | `(main, sub, col, row) -> ScreenBuffer` -- composite sub at (col,row), clips overflow, drops half wide-chars at right edge |
 | `RenderFull` | `(buf) -> Str` -- full screen render |
 | `BufferDiff` | `(prev, next) -> @(ops, requires_full)` |
 | `RenderOps` | `(ops) -> Str` -- diff ops to ANSI string |
@@ -187,7 +188,7 @@ cargo build
 ### Test
 
 ```bash
-cargo test                    # Rust unit + integration tests (426)
+cargo test                    # Rust unit + integration tests (439)
 ./scripts/smoke-test.sh       # Taida facade smoke test
 ```
 

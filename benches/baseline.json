@@ -1,7 +1,7 @@
 {
-  "_comment": "Bench baseline (TM-8g). Median nanoseconds for the budgeted benches in benches/renderer_perf.rs, captured 2026-04-23 after TMB-021 (row_hashes fast-path). This file feeds scripts/compare-bench-baseline.sh — an *informational* PR diff report only. The hard fail gate is driven by the hard-coded absolute budgets in scripts/check-bench-budget.sh; budgets are deliberately NOT stored here so a baseline-refresh PR cannot accidentally relax the gate. Re-baseline procedure: run benches locally, copy median.point_estimate from target/criterion/<bench>/new/estimates.json into the median_ns fields below, bump captured/captured_machine, and document the rationale in CHANGELOG.md.",
+  "_comment": "Bench baseline (TM-8g). Median nanoseconds for the budgeted benches in benches/renderer_perf.rs, re-captured 2026-04-23 after TMB-022 (BufferBlit addition). This file feeds scripts/compare-bench-baseline.sh — an *informational* PR diff report only. The hard fail gate is driven by the hard-coded absolute budgets in scripts/check-bench-budget.sh; budgets are deliberately NOT stored here so a baseline-refresh PR cannot accidentally relax the gate. Re-baseline procedure: run benches locally, copy median.point_estimate from target/criterion/<bench>/new/estimates.json into the median_ns fields below, bump captured/captured_machine, and document the rationale in CHANGELOG.md.",
   "captured": "2026-04-23",
-  "captured_after": "TMB-021 (row-hash fast-path)",
+  "captured_after": "TMB-022 (BufferBlit addition)",
   "captured_machine": "developer-laptop (CI runners are noisier; thresholds below tolerate that)",
   "regression_warn_pct": 15,
   "improvement_note_pct": 5,
@@ -25,6 +25,14 @@
     "render_frame_one_cell_diff_120x40": {
       "median_ns": 20585,
       "note": "RenderFrame 1-cell diff 120x40 (TMB-021 fast-path: 1 row descended into, 39 rows skipped)"
+    },
+    "buffer_blit_identity_120x40": {
+      "median_ns": 77700,
+      "note": "BufferBlit identity 120x40 sub into 120x40 main (TMB-022; O(N) Vec<Cell> clone, replaces pure-Taida O(N^2) loop that measured 48075 ms for the same shape)"
+    },
+    "buffer_blit_partial_120x40_into_240x80": {
+      "median_ns": 81200,
+      "note": "BufferBlit 120x40 sub at (61,21) into 240x80 main (TMB-022; scales with sub size, not main size)"
     }
   }
 }

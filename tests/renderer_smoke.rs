@@ -188,6 +188,24 @@ fn renderer_smoke_executes_all_ops() {
         "RenderFrame.size_change.len_gt10:yes",
         "RenderFrame.diff.len_gt0:yes",
         "RenderFrame.same.empty:yes",
+        // BufferBlit (Phase 9 / TMB-022)
+        "BufferBlit.identity.0:a",
+        "BufferBlit.identity.5:f",
+        "BufferBlit.partial.7:X",
+        "BufferBlit.partial.8:Y",
+        "BufferBlit.partial.untouched: ",
+        "BufferBlit.clip.10:*",
+        "BufferBlit.clip.15:*",
+        "BufferBlit.clip.untouched: ",
+        "BufferBlit.style_fg:red",
+        "BufferBlit.past_right.0:O",
+        "BufferBlit.past_right.1:R",
+        "BufferBlit.past_right.2:G",
+        // Wide-char boundary (TMB-022 HOLD fix): dropped lead at the
+        // right edge, and positive control where the pair fits.
+        "BufferBlit.wide_edge_drop.3:.",
+        "BufferBlit.wide_inbounds.2:漢",
+        "BufferBlit.wide_inbounds.3: ",
     ];
     for marker in must_contain {
         assert!(

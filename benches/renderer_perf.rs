@@ -5,13 +5,15 @@
 //! through the FFI marshalling layer, because the criterion harness
 //! cannot easily set up a `TaidaHostV1` callback table.
 //!
-//! ## Budget (TMB-020 acceptance criteria)
+//! ## Budget (TMB-020 + TMB-022 acceptance criteria)
 //!
 //! - `BufferWrite` 120 chars on a 120×40 buffer: `< 500 µs`
 //! - `composePane` (40 rows × 1 BufferWrite each) on 120×40: `< 5 ms`
 //! - `RenderFrame` identical 120×40: `< 100 µs`
 //! - `RenderFrame` 1-cell-diff 120×40: `< 2 ms`
 //! - `RenderFull` 120×40: `< 5 ms`
+//! - `BufferBlit` identity 120×40 → 120×40: `< 200 µs` (TMB-022)
+//! - `BufferBlit` partial 120×40 → 240×80: `< 200 µs` (TMB-022)
 //!
 //! The pure-Taida implementation that this Phase replaces did
 //! `composePane` 40×20 in 6081 ms (Hachikuma P-12-2 smoke); the new
@@ -177,6 +179,55 @@ fn render_full_scaling(c: &mut Criterion) {
     group.finish();
 }
 
+fn buffer_blit_identity(c: &mut Criterion) {
+    // Budget: < 200 µs. Identity blit — full-width sub copied over
+    // main (120×40 = 4800 cells). This is the TMB-022 hot path:
+    // Hachikuma's `composePane` at 120×40 used to take 48 s in pure
+    // Taida because list-index O(n) turned the sub walk into O(N²).
+    c.bench_function("buffer_blit_identity_120x40", |b| {
+        // Pre-fill the sub with non-space content so Cell::clone has to
+        // move a real string each cell (matches production).
+        let style = CellStyle::empty();
+        let text = "x".repeat(COLS as usize);
+        let mut sub = make_buffer(COLS, ROWS);
+        for r in 1..=ROWS {
+            renderer_bench_api::write_text(&mut sub, 1, r, &text, &style);
+        }
+        sub.row_hashes = None;
+        b.iter_batched(
+            || make_buffer(COLS, ROWS),
+            |mut main| {
+                renderer_bench_api::blit_into(&mut main, &sub, 1, 1);
+                main
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+}
+
+fn buffer_blit_partial_into_larger_main(c: &mut Criterion) {
+    // Budget: < 200 µs. 120×40 sub blitted at (61, 21) into a 240×80
+    // main (panes laid out on a larger canvas). Should scale with the
+    // sub size, not the main size.
+    c.bench_function("buffer_blit_partial_120x40_into_240x80", |b| {
+        let style = CellStyle::empty();
+        let text = "x".repeat(COLS as usize);
+        let mut sub = make_buffer(COLS, ROWS);
+        for r in 1..=ROWS {
+            renderer_bench_api::write_text(&mut sub, 1, r, &text, &style);
+        }
+        sub.row_hashes = None;
+        b.iter_batched(
+            || make_buffer(240, 80),
+            |mut main| {
+                renderer_bench_api::blit_into(&mut main, &sub, 61, 21);
+                main
+            },
+            criterion::BatchSize::SmallInput,
+        );
+    });
+}
+
 fn render_ops_throughput(c: &mut Criterion) {
     // Build a synthetic 120-op list (one Write per row) and measure
     // the render throughput. The Taida-side `RenderOps` ultimately
@@ -205,5 +256,7 @@ criterion_group!(
     render_frame_one_cell_diff,
     render_full_scaling,
     render_ops_throughput,
+    buffer_blit_identity,
+    buffer_blit_partial_into_larger_main,
 );
 criterion_main!(benches);
