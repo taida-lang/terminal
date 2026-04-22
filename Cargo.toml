@@ -12,6 +12,9 @@ crate-type = ["rlib", "cdylib"]
 [dependencies]
 taida-addon = { git = "https://github.com/taida-lang/taida.git" }
 
+[dev-dependencies]
+tempfile = "3"
+
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 

@@ -119,6 +119,7 @@ stdout(StylizeRgb[]("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0))))
 | Symbol | Description |
 |--------|-------------|
 | `Cell` | `@(text, fg, bg, bold, dim, underline, italic)` |
+| `CellStyle` | `@(fg, bg, bold, dim, underline, italic)` -- helper pack for `BufferWrite` style arg |
 | `ScreenBuffer` | `@(cols, rows, cells, cursor_col, cursor_row, cursor_visible)` |
 | `DiffOpKind` | MoveTo / Write / ClearLine / ShowCursor / HideCursor |
 | `DiffOp` | `@(kind, col, row, text, style)` |

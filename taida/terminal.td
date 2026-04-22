@@ -181,7 +181,7 @@ RawModeLeave <= rawModeLeave
 
 >>> ./width.td => @(WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth)
 
->>> ./renderer.td => @(Cell, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame)
+>>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame)
 
 // ── Event Types (TM-3a) ────────────────────────────────────────
 
@@ -275,4 +275,4 @@ Write <= write
 
 >>> ./widgets.td => @(SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
 
-<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, Write, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)
+<<< @(TerminalSize, ReadKey, KeyKind, IsTerminal, RawModeEnter, RawModeLeave, ClearScreen, ClearLine, AltScreenEnter, AltScreenLeave, CursorMoveTo, CursorHide, CursorShow, Stylize, Color, ResetStyle, Color256, ColorRgb, Stylize256, StylizeRgb, EventKind, MouseKind, ReadEvent, MouseTrackingEnter, MouseTrackingLeave, Write, WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth, Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite, BufferFillRect, RenderFull, BufferDiff, RenderOps, RenderFrame, PromptMode, PromptOptions, CompletionState, LineEditorAction, LineEditorState, LineEditorNew, LineEditorStep, LineEditorRender, SpinnerState, SpinnerNext, SpinnerRender, ProgressOptions, ProgressBar, StatusLine)

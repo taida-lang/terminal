@@ -466,6 +466,7 @@ stdout(MouseTrackingLeave())
 ## Exports
 
 - `Cell`
+- `CellStyle`
 - `ScreenBuffer`
 - `DiffOpKind`
 - `DiffOp`
@@ -508,6 +509,14 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
+### _styleHasAny
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `style` | `-` | - |
+
+**Returns**: `Bool`
+
 ### _cellEq
 
 | Parameter | Type | Description |
@@ -517,15 +526,24 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `Bool`
 
-### _makeCellsLoop
+### _buildCell
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `acc` | `-` | - |
-| `remaining` | `-` | - |
-| `fill` | `-` | - |
+| `ch` | `-` | - |
+| `style` | `-` | - |
 
-**Returns**: `@[Str]`
+**Returns**: `@()`
+
+### _listSet
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `xs` | `-` | - |
+| `idx` | `-` | - |
+| `newV` | `-` | - |
+
+**Returns**: `@()`
 
 ### _makeCellsAppend
 
@@ -535,9 +553,30 @@ stdout(MouseTrackingLeave())
 | `remaining` | `-` | - |
 | `fill` | `-` | - |
 
-**Returns**: `@[Str]`
+**Returns**: `@()`
 
-### BufferNew
+### _makeCellsLoop
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `acc` | `-` | - |
+| `remaining` | `-` | - |
+| `fill` | `-` | - |
+
+**Returns**: `@()`
+
+### _bufferPutInner
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+| `col` | `-` | - |
+| `row` | `-` | - |
+| `cell` | `-` | - |
+
+**Returns**: `@()`
+
+### _bufferNewInner
 
 > Create an empty buffer of the specified size
 
@@ -553,7 +592,7 @@ stdout(MouseTrackingLeave())
 
 **Since**: a.6
 
-### _bufferNewInner
+### BufferNew
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -562,7 +601,7 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `@()`
 
-### BufferResize
+### _bufferResizeInner
 
 > Resize a buffer, preserving existing content where possible
 
@@ -577,7 +616,7 @@ stdout(MouseTrackingLeave())
 
 **Since**: a.6
 
-### _bufferResizeInner
+### BufferResize
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -619,9 +658,7 @@ stdout(MouseTrackingLeave())
 
 **Since**: a.6
 
-### BufferWrite
-
-> Write text with style at a given position
+### _bwWorker
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -629,14 +666,60 @@ stdout(MouseTrackingLeave())
 | `col` | `-` | - |
 | `row` | `-` | - |
 | `text` | `-` | - |
+| `idx` | `-` | - |
 | `style` | `-` | - |
+| `len` | `-` | - |
+
+**Returns**: `@()`
+
+### BufferWrite
+
+> Write text with style at a given position, advancing cursor by display width
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | ScreenBuffer |
+| `col` | `-` | Int (1-based, must be in range) |
+| `row` | `-` | Int (1-based, must be in range) |
+| `text` | `-` | Str — normalized cell text (TAB / newline are pre-expanded) |
+| `style` | `-` | @(fg, bg, bold, dim, underline, italic) — all 6 fields required |
 
 **Returns**: `@()`
 
 **Throws**:
-- RendererOutOfBounds
+- RendererOutOfBounds if col/row < 1 or > buf.cols / buf.rows
+- Notes: truncates at right edge; wide chars (width 2) occupy 2 cells,
+- second cell is a space placeholder with the same style; width 0
+- graphemes (combining marks / control) are skipped.
 
 **Since**: a.6
+
+### _frColWorker
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+| `col0` | `-` | - |
+| `curCol` | `-` | - |
+| `curRow` | `-` | - |
+| `width` | `-` | - |
+| `cell` | `-` | - |
+
+**Returns**: `@()`
+
+### _frRowWorker
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+| `col0` | `-` | - |
+| `row0` | `-` | - |
+| `curRow` | `-` | - |
+| `width` | `-` | - |
+| `height` | `-` | - |
+| `cell` | `-` | - |
+
+**Returns**: `@()`
 
 ### BufferFillRect
 
@@ -655,6 +738,35 @@ stdout(MouseTrackingLeave())
 
 **Since**: a.6
 
+### _rfCellWorker
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+| `c` | `-` | - |
+| `r` | `-` | - |
+| `acc` | `-` | - |
+
+**Returns**: `Str`
+
+### _rfRowWorker
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+| `r` | `-` | - |
+| `acc` | `-` | - |
+
+**Returns**: `Str`
+
+### _renderFullInner
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `buf` | `-` | - |
+
+**Returns**: `Str`
+
 ### RenderFull
 
 > Render the entire buffer as an ANSI string
@@ -667,13 +779,65 @@ stdout(MouseTrackingLeave())
 
 **Since**: a.6
 
-### _renderFullInner
+### _diffCellsWorker
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `buf` | `-` | - |
+| `prev` | `-` | - |
+| `next` | `-` | - |
+| `idx` | `-` | - |
+| `acc` | `-` | - |
+| `total` | `-` | - |
 
-**Returns**: `Str`
+**Returns**: `@()`
+
+### _diffAppendVisOp
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ops` | `-` | - |
+| `kindTag` | `-` | - |
+
+**Returns**: `@()`
+
+### _diffAppendMoveOp
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ops` | `-` | - |
+| `col` | `-` | - |
+| `row` | `-` | - |
+
+**Returns**: `@()`
+
+### _diffVisibility
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prev` | `-` | - |
+| `next` | `-` | - |
+| `ops` | `-` | - |
+
+**Returns**: `@()`
+
+### _diffPosition
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prev` | `-` | - |
+| `next` | `-` | - |
+| `ops` | `-` | - |
+
+**Returns**: `@()`
+
+### _diffSameSize
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `prev` | `-` | - |
+| `next` | `-` | - |
+
+**Returns**: `@()`
 
 ### BufferDiff
 
@@ -687,6 +851,25 @@ stdout(MouseTrackingLeave())
 **Returns**: `@()`
 
 **Since**: a.6
+
+### _renderOp
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `op` | `-` | - |
+
+**Returns**: `Str`
+
+### _roWorker
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `ops` | `-` | - |
+| `idx` | `-` | - |
+| `total` | `-` | - |
+| `acc` | `-` | - |
+
+**Returns**: `Str`
 
 ### RenderOps
 
@@ -720,6 +903,17 @@ stdout(MouseTrackingLeave())
 > One cell of data (character + style)
 
 **Since**: a.6
+
+### CellStyle
+
+> Default style options for BufferWrite callers
+
+**Since**: a.7
+
+**AI-Context**:
+BufferWrite style arg must be this 6-field shape. Use
+`CellStyle(fg <= "red", bg <= "", bold <= false, dim <= false,
+underline <= false, italic <= false)` — every field must be present.
 
 ### ScreenBuffer
 
@@ -1060,6 +1254,7 @@ Pass to StylizeRgb fg / bg. All -1 means no color.
 - `TruncateWidth`
 - `PadWidth`
 - `Cell`
+- `CellStyle`
 - `ScreenBuffer`
 - `DiffOpKind`
 - `DiffOp`
@@ -1301,38 +1496,30 @@ raw モード必須。ReadKey の上位互換。
 
 > stdout に改行なしで即時書き出す（TUI 用）
 
-**Params**:
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `bytes` | `Str` | 書き出すバイト列（UTF-8）。ANSI エスケープを含んでよい。 |
-
-**Returns**: `Int` — 書き込んだバイト数（`bytes` の UTF-8 バイト長と一致）
+**Returns**: Int — 書き込んだバイト数
 
 **Throws**:
-- `WriteFailed` (5001): `io::stdout().write_all` / `flush` が I/O エラーで失敗した場合（EPIPE, EIO など）
-- `WriteBuildValue` (5002): 戻り値 `Int` のホスト側確保に失敗した場合
-- `WritePanic` (5003): write path 内で panic が発生した場合（FFI 境界で `catch_unwind` により捕捉）
+- WriteFailed: write_all / flush が I/O エラーで失敗した場合 (EPIPE 等)
+- WriteBuildValue: 戻り値 Int のホスト側確保に失敗した場合
+- WritePanic: write path 内で panic が発生した場合（FFI 境界で捕捉）
 
 **Example**:
 
 ```taida
-Write[]("\x1b[2J\x1b[H")            // clear + home cursor
-Write[](CursorMoveTo[](10, 5))      // cursor move (no implicit \n)
-n <= Write[]("hello")               // n == 5
-Write[]("あいう")                    // UTF-8: n == 9 (byte count, not char count)
+Write[]("\x1b[2J\x1b[H")          // clear + home cursor
+Write[](CursorMoveTo[](10, 5))    // カーソル移動（改行なし）
+n <= Write[]("hello")             // n == 5
 ```
 
 **Since**: a.6
 
 **AI-Context**:
 `stdout()` builtin は push 単位で `\n` を暗黙追加する行指向 I/O のため、
-ANSI エスケープを連続送信する TUI 用途にはこの `Write[]()` を使う。
+ANSI エスケープを連続送信する TUI 用途にはこの Write[]() を使う。
 non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
-silent fallback なし — I/O 失敗は必ず `WriteFailed` として deterministic に返る。
 
 **AI-SideEffects**:
-- stdout に即時書き出す（`write_all` + `flush`）。改行の暗黙追加は行わない。
+- stdout に即時書き出す（flush 付き）。改行の暗黙追加は行わない。
 
 # Module: widgets.td
 

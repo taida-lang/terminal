@@ -6,6 +6,56 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
+## [Unreleased]
+
+### Fixed
+- **Renderer core が no-op だった問題を完全実装で解消** (TMB-019 / Phase 7).
+  Phase 4 で DONE と記録されていた `BufferPut` / `BufferWrite` /
+  `BufferFillRect` / `RenderFull` / `BufferDiff` / `RenderOps` /
+  `RenderFrame` は `taida/renderer.td` 上で placeholder を返す no-op の
+  まま放置されており、renderer 基盤に乗る TUI アプリケーションは画面
+  描画されない状態だった。これらを `Take` + `Drop` + `Append` + `Concat`
+  に基づく pure Taida の list-replace で実装し直し:
+  - `BufferPut` / `BufferWrite` / `BufferFillRect`: bounds check 後に
+    実際に cell を書き換える。`BufferWrite` は `NormalizeCellText` +
+    `MeasureGrapheme` で列幅 0 / 1 / 2 を適切に扱い、wide char の placeholder
+    cell も style を保持して emit する。右端での truncate は wrap 禁止。
+  - `RenderFull`: 各行の cell を `Stylize` 経由で連結し、非 default style の
+    cell は SGR 装飾付きで出力。cursor 位置復元と visibility 復元を保証。
+  - `BufferDiff`: size mismatch 時は `requires_full=true` + 空 ops、同 size
+    時は cell 毎の `_cellEq` 比較で `Write` ops を最小 emit + cursor
+    visibility / position 変化を追加 op として append。
+  - `RenderOps`: `MoveTo` / `Write` / `ClearLine` / `ShowCursor` /
+    `HideCursor` を ANSI に展開、`Write` は style が空でなければ
+    `Stylize` でラップ。
+  - `RenderFrame`: `requires_full` で `RenderFull` に fallback、そうでなければ
+    `RenderOps` を emit。identical buffer では空 text を返す。
+- Facade module loader の forward reference 制限 (TMB-010 で発見した
+  「一段階を超える forward ref は解決できない」問題) に合わせ、mutual
+  recursion を single-function recursion + nested match に畳み込んだ
+  実装に変更。`_bwWorker` / `_frRowWorker` / `_frColWorker` / `_rfCellWorker` /
+  `_rfRowWorker` / `_diffCellsWorker` / `_roWorker` が 1 関数内で完結する。
+
+### Added
+- **`CellStyle`** default pack — BufferWrite の `style` 引数の 6 フィールド
+  shape (`fg` / `bg` / `bold` / `dim` / `underline` / `italic`) をデフォルトで
+  提供。partial pack 作成はできないため、呼び出し側は `CellStyle(fg <= "red",
+  bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)`
+  のように 6 フィールド全部を明示する。`<<< terminal.td` の exports に追加。
+- `examples/smoke_test.td` に renderer セクションを追加: `BufferPut` /
+  `BufferWrite` (truncation / style 保持) / `BufferFillRect` / `RenderFull` /
+  `BufferDiff` (identical / single change / size mismatch) / `RenderOps` /
+  `RenderFrame` の戻り値を 21 項目で assert。PASS marker `PASS:renderer_ops`
+  を発行。
+- `tests/renderer_smoke.rs` (新規) — `examples/smoke_test.td` を実際の
+  `taida` CLI で実行し、`PASS:renderer_ops` + 21 項目の値を 1 test で
+  verify。Rust 側で期待文字列を再計算するだけだった既存
+  `tests/renderer_facade.rs` (82 pseudo-test) の gap を埋める。`taida`
+  binary は `TAIDA_BIN` env / 上位 monorepo `target/{debug,release}/taida` /
+  `$PATH` の順で探索し、見つからなければ loud skip。
+- `Cargo.toml` に `tempfile = "3"` を dev-dependency として追加 (renderer_smoke
+  が staged workspace を作るため)。
+
 ## [@a.3] — 2026-04-21
 
 ### Added
