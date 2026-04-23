@@ -52,15 +52,13 @@ editor, widgets) are plain functions called with `Name(...)`.
 ### TTY detection and terminal size
 
 ```taida
-| IsTerminal[]("stdout") |> (
-  size <= TerminalSize[]()
-  stdout(size.cols.toString() + "x" + size.rows.toString())
-)
+| IsTerminal[]("stdout") |> stdout(TerminalSize[]().cols.toString() + "x" + TerminalSize[]().rows.toString())
 ```
 
-`|` is the guard operator; `|>` separates the condition from the body.
-Conditional branches are values, not statements — wrap them in `(...)`
-when you need multiple arms, per `docs/guide/07_control_flow.md`.
+`|` is the guard operator; `|>` separates the condition from a single
+body expression. When you need a multi-arm conditional, wrap it in
+`(...)` with a `| _ |> ...` fallback. See
+`docs/guide/07_control_flow.md` for full grammar.
 
 ### Single key read
 
@@ -109,23 +107,18 @@ moves, partial redraws, spinner ticks, progress updates).
 
 ### Styling (16 / 256 / RGB)
 
+Style packs require all six fields (`fg`, `bg`, `bold`, `dim`,
+`underline`, `italic`). Use `""` for unset color and `false` for unset
+attributes. Call arguments must fit on a single line.
+
 ```taida
-red <= Stylize(
-  "hello",
-  @(fg <= Color.red, bg <= "", bold <= true, dim <= false, underline <= false, italic <= false)
-)
+red <= Stylize("hello", @(fg <= Color.red, bg <= "", bold <= true, dim <= false, underline <= false, italic <= false))
 stdout(red)
 
-orange <= Stylize256(
-  "256",
-  @(fg <= Color256(index <= 208), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)
-)
+orange <= Stylize256("256", @(fg <= Color256(index <= 208), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
 stdout(orange)
 
-rgb <= StylizeRgb(
-  "rgb",
-  @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)
-)
+rgb <= StylizeRgb("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
 stdout(rgb)
 
 stdout(ResetStyle())
@@ -146,10 +139,7 @@ stdout(m.width.toString() + " / mode=" + m.mode.toString())
 ### Virtual buffer + diff renderer
 
 ```taida
-plain <= CellStyle(
-  fg <= "", bg <= "",
-  bold <= false, dim <= false, underline <= false, italic <= false
-)
+plain <= CellStyle(fg <= "", bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)
 
 prev <= BufferNew[](20, 5)
 next <= BufferWrite(prev, 1, 1, "Hello, world", plain)
@@ -166,29 +156,25 @@ the pure-Taida `Append` loop to eliminate the O(N²) hot path).
 
 ### Line editor (pure state machine)
 
-```taida
-opts <= PromptOptions(
-  prompt      <= "> ",
-  initial     <= "",
-  placeholder <= "type here",
-  mode        <= PromptMode.Normal,
-  history     <= @[],
-  completion  <= @()
-)
+Taida forbids rebinding an already-defined name in the same scope, so
+each editor transition introduces a new name (`editor0`, `editor1`, …).
 
-editor <= LineEditorNew(opts)
+```taida
+opts <= PromptOptions(prompt <= "> ", initial <= "", placeholder <= "type here", mode <= PromptMode.Normal, history <= @[], completion <= @())
+
+editor0 <= LineEditorNew(opts)
 
 RawModeEnter[]()
-editor <= LineEditorStep(editor, ReadEvent[]())
+editor1 <= LineEditorStep(editor0, ReadEvent[]())
 RawModeLeave[]()
 
-view <= LineEditorRender(editor)
+view <= LineEditorRender(editor1)
 Write[](view.text)
 ```
 
 `LineEditorStep` is pure — it takes the current state and one event, and
-returns the next state. Compose your own event loop (`ReadEvent[]()`,
-kitty protocol, mocked events in tests) around it.
+returns the next state. For a full event loop, write a recursive helper
+that threads the editor state through each recursion step.
 
 ### UX widgets
 
