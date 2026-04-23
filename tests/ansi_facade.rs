@@ -445,9 +445,12 @@ fn raw_mode_non_tty_returns_error() {
     // (write at position 6); TMB-020 / Phase 8 appended 8 more
     // renderer entries (positions 7..=14) for a total of 15;
     // TMB-022 / Phase 9 appended `bufferBlit` at position 15
-    // for a total of 16. The assertion pins the append-only
-    // contract: the count grows, never shrinks.
-    assert_eq!(functions.len(), 16);
+    // for a total of 16; TMB-024 / Phase 10 appended
+    // `bufferNew` + `bufferResize` at positions 16..=17 for a
+    // total of 18; TMB-025 / Phase 10 appended 5 width entries
+    // at positions 18..=22 for a total of 23. The assertion pins
+    // the append-only contract: the count grows, never shrinks.
+    assert_eq!(functions.len(), 23);
 
     // Find rawModeEnter by name.
     let mut raw_enter = None;

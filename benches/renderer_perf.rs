@@ -14,6 +14,9 @@
 //! - `RenderFull` 120×40: `< 5 ms`
 //! - `BufferBlit` identity 120×40 → 120×40: `< 200 µs` (TMB-022)
 //! - `BufferBlit` partial 120×40 → 240×80: `< 200 µs` (TMB-022)
+//! - `BufferNew` 120×40: `< 500 µs` (TMB-024) — includes `compute_row_hashes`
+//! - `DisplayWidth` N=1600: `< 50 µs` (TMB-025)
+//! - `PadWidth` N=1600: `< 50 µs` (TMB-025)
 //!
 //! The pure-Taida implementation that this Phase replaces did
 //! `composePane` 40×20 in 6081 ms (Hachikuma P-12-2 smoke); the new
@@ -228,6 +231,44 @@ fn buffer_blit_partial_into_larger_main(c: &mut Criterion) {
     });
 }
 
+fn buffer_new_120x40(c: &mut Criterion) {
+    // Budget: < 500 µs. Phase 10 / TMB-024 replaces the pure-Taida
+    // `_makeCellsLoop` (O(N²), 3335 ms for 120×40 on Hachikuma's
+    // `_perf_isolate.td`) with a native `vec![Cell::default_space(); n]`
+    // + `compute_row_hashes()`. Local measurement ≈ 150 µs (dominated
+    // by the 40-row row-hash computation); budget carries CI-runner
+    // slack. Improvement vs pure-Taida: ~22,000×.
+    c.bench_function("buffer_new_120x40", |b| {
+        b.iter(|| renderer_bench_api::buffer_new(COLS, ROWS));
+    });
+}
+
+fn display_width_n1600(c: &mut Criterion) {
+    // Budget: < 50 µs. Phase 10 / TMB-025. Pure-Taida `DisplayWidth`
+    // used `CharAt[src, idx]()` + `acc + ch` on every codepoint for
+    // double-O(N²); the probe recorded 79 ms for N=1600. Native path
+    // is a single `chars()` walk + `char_width` table lookup — local
+    // measurement ≈ 3 µs. Improvement: ~25,000×.
+    c.bench_function("display_width_n1600", |b| {
+        let text = "x".repeat(1600);
+        b.iter(|| renderer_bench_api::display_width(&text));
+    });
+}
+
+fn pad_width_n1600(c: &mut Criterion) {
+    // Budget: < 50 µs. Phase 10 / TMB-025 + TMB-026. `PadWidth` sits
+    // at the intersection of two pure-Taida hot paths: the
+    // `DisplayWidth` probe (TMB-025) and the `_padLoop` string concat
+    // (TMB-026). Native implementation preallocates
+    // `String::with_capacity(text.len() + pad)` and appends once.
+    // Scenario: 22-char label padded to column 1600 (= Hachikuma
+    // status-line shape). Local measurement ≈ 0.4 µs.
+    c.bench_function("pad_width_n1600", |b| {
+        let text = "short label".repeat(2); // 22 chars, width 22
+        b.iter(|| renderer_bench_api::pad_width(&text, 1600));
+    });
+}
+
 fn render_ops_throughput(c: &mut Criterion) {
     // Build a synthetic 120-op list (one Write per row) and measure
     // the render throughput. The Taida-side `RenderOps` ultimately
@@ -258,5 +299,8 @@ criterion_group!(
     render_ops_throughput,
     buffer_blit_identity,
     buffer_blit_partial_into_larger_main,
+    buffer_new_120x40,
+    display_width_n1600,
+    pad_width_n1600,
 );
 criterion_main!(benches);

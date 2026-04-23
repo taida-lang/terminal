@@ -13,11 +13,14 @@
 //!   `render_frame` immutable computations.
 //! - [`blit`]: `buffer_blit` sub→main composition entry (Phase 9 /
 //!   TMB-022).
+//! - [`alloc`]: `buffer_new` / `buffer_resize` allocation entries
+//!   (Phase 10 / TMB-024).
 //!
 //! The split exists so the marshalling primitives can be reused by
 //! the criterion benches without pulling in the FFI dispatcher
 //! shape from `lib.rs`.
 
+pub mod alloc;
 pub mod blit;
 pub mod diff;
 pub mod ops;

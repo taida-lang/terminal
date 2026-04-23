@@ -54,6 +54,12 @@ mod write;
 #[cfg(any(unix, windows))]
 pub(crate) mod renderer;
 
+// `width` is platform-shared: pure Unicode classification + string
+// transforms. No syscalls. Introduced by TMB-025 (Phase 10) to move
+// the O(N²) pure-Taida width.td implementations onto a linear path.
+#[cfg(any(unix, windows))]
+mod width;
+
 use core::ffi::c_char;
 use core::sync::atomic::{AtomicPtr, Ordering};
 
@@ -481,6 +487,136 @@ extern "C" fn buffer_blit(
     }
 }
 
+// ── Width entries (Phase 10 / TMB-025) ────────────────────────────
+
+extern "C" fn measure_grapheme(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        width::measure_grapheme_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn display_width(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        width::display_width_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn normalize_cell_text(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        width::normalize_cell_text_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn truncate_width(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        width::truncate_width_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn pad_width(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        width::pad_width_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+// ── BufferNew / BufferResize (Phase 10 / TMB-024) ─────────────────
+
+extern "C" fn buffer_new(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::alloc::buffer_new_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
+extern "C" fn buffer_resize(
+    args_ptr: *const TaidaAddonValueV1,
+    args_len: u32,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let host_ptr = HOST_PTR.load(Ordering::Acquire);
+    #[cfg(any(unix, windows))]
+    {
+        renderer::alloc::buffer_resize_impl(host_ptr, args_ptr, args_len, out_value, out_error)
+    }
+    #[cfg(not(any(unix, windows)))]
+    {
+        let _ = (host_ptr, args_ptr, args_len, out_value, out_error);
+        TaidaAddonStatus::Error
+    }
+}
+
 // ── Function table ───────────────────────────────────────────────
 
 /// Function table for the terminal package.
@@ -570,6 +706,43 @@ pub static TERMINAL_FUNCTIONS: &[TaidaAddonFunctionV1] = &[
         arity: 4,
         call: buffer_blit,
     },
+    // ── Phase 10 / TMB-024 (append-only, positions 16..=17) ──
+    TaidaAddonFunctionV1 {
+        name: c"bufferNew".as_ptr() as *const c_char,
+        arity: 2,
+        call: buffer_new,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"bufferResize".as_ptr() as *const c_char,
+        arity: 4,
+        call: buffer_resize,
+    },
+    // ── Phase 10 / TMB-025 (append-only, positions 18..=22) ──
+    TaidaAddonFunctionV1 {
+        name: c"measureGrapheme".as_ptr() as *const c_char,
+        arity: 1,
+        call: measure_grapheme,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"displayWidth".as_ptr() as *const c_char,
+        arity: 1,
+        call: display_width,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"normalizeCellText".as_ptr() as *const c_char,
+        arity: 1,
+        call: normalize_cell_text,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"truncateWidth".as_ptr() as *const c_char,
+        arity: 2,
+        call: truncate_width,
+    },
+    TaidaAddonFunctionV1 {
+        name: c"padWidth".as_ptr() as *const c_char,
+        arity: 2,
+        call: pad_width,
+    },
 ];
 
 taida_addon::declare_addon! {
@@ -591,10 +764,16 @@ taida_addon::declare_addon! {
 #[doc(hidden)]
 #[cfg(any(unix, windows))]
 pub mod renderer_bench_api {
+    pub use crate::renderer::alloc::__bench::{buffer_new, buffer_resize};
     pub use crate::renderer::blit::__bench::blit_into;
     pub use crate::renderer::diff::__bench::{diff_buffers, render_full, render_ops_to_string};
     pub use crate::renderer::ops::__bench::write_text;
     pub use crate::renderer::state::{BufferState, Cell, CellStyle, DiffOp, diff_kind};
+    // Phase 10 / TMB-024 + TMB-025 bench re-exports. Let the criterion
+    // harness measure the native alloc / width hot paths directly so
+    // the reported numbers reflect what production Taida callers hit
+    // after the dispatch alias in `taida/terminal.td`.
+    pub use crate::width::{display_width, pad_width};
 
     /// Bench-only re-export of [`BufferState::compute_row_hashes`].
     /// Lets the criterion harness mirror the production invariant
@@ -689,17 +868,20 @@ mod tests {
     }
 
     #[test]
-    fn descriptor_advertises_sixteen_functions() {
+    fn descriptor_advertises_twenty_three_functions() {
         // v1 lock (3) + Phase 2 (rawModeEnter/Leave = 2) + Phase 3
         // (readEvent = 1) + TMB-016 (write = 1) + Phase 8 / TMB-020
         // (bufferPut, bufferWrite, bufferFillRect, bufferClear,
         // bufferDiff, renderFull, renderFrame, renderOps = 8) +
-        // Phase 9 / TMB-022 (bufferBlit = 1) = 16.
-        // Adding an entry is append-only and bumps this count by one.
+        // Phase 9 / TMB-022 (bufferBlit = 1) +
+        // Phase 10 / TMB-024 (bufferNew, bufferResize = 2) +
+        // Phase 10 / TMB-025 (measureGrapheme, displayWidth,
+        // normalizeCellText, truncateWidth, padWidth = 5) = 23.
+        // Adding an entry is append-only and bumps this count.
         let ptr = unsafe { taida_addon_get_v1() };
         let d = unsafe { &*ptr };
         assert_eq!(d.function_count as usize, TERMINAL_FUNCTIONS.len());
-        assert_eq!(d.function_count, 16);
+        assert_eq!(d.function_count, 23);
     }
 
     #[test]
@@ -731,7 +913,11 @@ mod tests {
         assert_eq!(&seen[..3], &v1_expected[..]);
         // Full table includes v1 + Phase 2 + Phase 3 + TMB-016 +
         // Phase 8 / TMB-020 (8 entries appended) + Phase 9 / TMB-022
-        // (bufferBlit appended at position 15).
+        // (bufferBlit appended at position 15) + Phase 10 / TMB-024
+        // (bufferNew, bufferResize appended at positions 16..=17) +
+        // Phase 10 / TMB-025 (measureGrapheme, displayWidth,
+        // normalizeCellText, truncateWidth, padWidth appended at
+        // positions 18..=22).
         let full_expected: Vec<(String, u32)> = vec![
             ("terminalSize".to_string(), 0u32),
             ("readKey".to_string(), 0),
@@ -749,6 +935,13 @@ mod tests {
             ("renderFrame".to_string(), 2),
             ("renderOps".to_string(), 1),
             ("bufferBlit".to_string(), 4),
+            ("bufferNew".to_string(), 2),
+            ("bufferResize".to_string(), 4),
+            ("measureGrapheme".to_string(), 1),
+            ("displayWidth".to_string(), 1),
+            ("normalizeCellText".to_string(), 1),
+            ("truncateWidth".to_string(), 2),
+            ("padWidth".to_string(), 2),
         ];
         assert_eq!(seen, full_expected);
     }
@@ -989,6 +1182,7 @@ mod tests {
     /// - ReadEvent:     4001-4007
     /// - Write:         5001-5003 (TMB-016)
     /// - Renderer:      6001-6005 (TMB-020 / Phase 8)
+    /// - Width:         6101-6103 (TMB-025 / Phase 10)
     #[test]
     #[cfg(unix)]
     fn error_code_ranges_are_frozen_unix() {
@@ -998,6 +1192,7 @@ mod tests {
         use crate::renderer::state::err as rne;
         use crate::size::err as se;
         use crate::tty::err as te;
+        use crate::width::err as wie;
         use crate::write::err as we;
 
         // ReadKey error codes
@@ -1043,6 +1238,11 @@ mod tests {
         assert_eq!(rne::RENDERER_INVALID_SIZE, 6003);
         assert_eq!(rne::RENDERER_BUILD_VALUE, 6004);
         assert_eq!(rne::RENDERER_PANIC, 6005);
+
+        // Width error codes (TMB-025 / Phase 10)
+        assert_eq!(wie::WIDTH_INVALID_ARG, 6101);
+        assert_eq!(wie::WIDTH_BUILD_VALUE, 6102);
+        assert_eq!(wie::WIDTH_PANIC, 6103);
     }
 
     /// Cross-platform error name contract: the Taida-side error type names
@@ -1093,6 +1293,10 @@ mod tests {
             "RendererInvalidSize",
             "RendererBuildValue",
             "RendererPanic",
+            // Width (TMB-025 / Phase 10)
+            "WidthInvalidArg",
+            "WidthBuildValue",
+            "WidthPanic",
         ];
         // Verify no duplicates.
         let mut sorted = expected.to_vec();
@@ -1106,6 +1310,6 @@ mod tests {
             );
         }
         // Count is the contract — adding a new error must update this.
-        assert_eq!(expected.len(), 32);
+        assert_eq!(expected.len(), 35);
     }
 }

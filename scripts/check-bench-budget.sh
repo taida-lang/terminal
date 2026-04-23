@@ -1,8 +1,12 @@
 #!/usr/bin/env bash
 # scripts/check-bench-budget.sh
 #
-# TM-8g hard gate: fail if any of the 5 budgeted benches in
+# TM-8g hard gate: fail if any of the budgeted benches in
 # benches/renderer_perf.rs exceeds its absolute production budget.
+# Budget list grows with each renderer-layer native addition:
+#   a.5  (TMB-020): 5 benches for the core renderer core migration.
+#   a.6  (TMB-022): +2 for BufferBlit.
+#   a.7  (TMB-024/025): +3 for BufferNew / DisplayWidth / PadWidth.
 #
 # Why absolute budgets and not 15% relative regression?
 # GitHub-hosted runners are noisy (±15% jitter is common), so a
@@ -62,6 +66,9 @@ BUDGETS=(
   "render_frame_one_cell_diff_120x40:2000000"           # 2 ms
   "buffer_blit_identity_120x40:200000"                  # 200 µs (TMB-022)
   "buffer_blit_partial_120x40_into_240x80:200000"       # 200 µs (TMB-022)
+  "buffer_new_120x40:500000"                            # 500 µs (TMB-024) — dominated by compute_row_hashes() over 40 rows × 120 cells; measured ~150 µs locally, budget has CI-runner slack.
+  "display_width_n1600:50000"                           # 50 µs  (TMB-025) — measured ~3 µs locally on 1600-char input.
+  "pad_width_n1600:50000"                               # 50 µs  (TMB-025) — measured ~0.4 µs locally (short text + 1578 spaces).
 )
 
 printf "%-44s %14s %14s %12s %s\n" "BENCH" "MEDIAN (ns)" "BUDGET (ns)" "USED %" "STATUS"

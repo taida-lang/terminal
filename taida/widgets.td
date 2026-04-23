@@ -82,13 +82,14 @@ _progressBarInner current total opts =
   If[opts.right_label == "", withLeft, withLeft + " " + opts.right_label]()
 => :Str
 
+// TMB-026: the pure-Taida `_repeatLoop` used `acc + ch` concat
+// `count` times, which is O(N²) because the `+` operator allocates a
+// fresh `String` on every step. The interpreter's `Repeat[str, n]()`
+// mold is O(N) via Rust `str::repeat`, so routing through it flattens
+// the hot path for ProgressBar (barWidth up to 100-200) and
+// StatusLine (width up to 200+ cells).
 _repeatStr ch count =
-  If[count < 1, "", _repeatLoop("", ch, count)]()
-=> :Str
-
-_repeatLoop acc ch remaining =
-  | remaining < 1 |> acc
-  | _ |> _repeatLoop(acc + ch, ch, remaining - 1)
+  If[count < 1, "", Repeat[ch, count]()]()
 => :Str
 
 // -- Status Line --

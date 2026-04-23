@@ -348,10 +348,9 @@ impl BufferState {
 pub enum RendererError {
     InvalidArg(String),
     OutOfBounds(String),
-    /// Reserved for future Buffer constructors (`BufferNew` / `BufferResize`)
-    /// that may move into the addon. The error code is part of the
-    /// public surface today so the variant is held in reserve.
-    #[allow(dead_code)]
+    /// Emitted by `BufferNew` / `BufferResize` when `cols < 1` or
+    /// `rows < 1`. Mirrors the pure-Taida facade error name
+    /// `RendererInvalidSize`. Code is part of the public surface.
     InvalidSize(String),
 }
 

@@ -388,15 +388,6 @@ stdout(MouseTrackingLeave())
 
 **Returns**: `Str`
 
-### _maskLoop
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `acc` | `-` | - |
-| `remaining` | `-` | - |
-
-**Returns**: `Str`
-
 ### _cursorWidthCalc
 
 | Parameter | Type | Description |
@@ -436,440 +427,17 @@ stdout(MouseTrackingLeave())
 - `ScreenBuffer`
 - `DiffOpKind`
 - `DiffOp`
-- `BufferNew`
-- `BufferResize`
-- `BufferClear`
-- `BufferPut`
-- `BufferWrite`
-- `BufferFillRect`
-- `BufferBlit`
-- `RenderFull`
-- `BufferDiff`
-- `RenderOps`
-- `RenderFrame`
-
-## Functions
-
-### _cellIndex
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cols` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-
-**Returns**: `Int`
-
-### _hasStyle
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cell` | `-` | - |
-
-**Returns**: `Bool`
-
-### _cellStyleOpts
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-### _styleHasAny
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `style` | `-` | - |
-
-**Returns**: `Bool`
-
-### _cellEq
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `a` | `-` | - |
-| `b` | `-` | - |
-
-**Returns**: `Bool`
-
-### _buildCell
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ch` | `-` | - |
-| `style` | `-` | - |
-
-**Returns**: `@()`
-
-### _listSet
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `xs` | `-` | - |
-| `idx` | `-` | - |
-| `newV` | `-` | - |
-
-**Returns**: `@()`
-
-### _makeCellsAppend
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `acc` | `-` | - |
-| `remaining` | `-` | - |
-| `fill` | `-` | - |
-
-**Returns**: `@()`
-
-### _makeCellsLoop
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `acc` | `-` | - |
-| `remaining` | `-` | - |
-| `fill` | `-` | - |
-
-**Returns**: `@()`
-
-### _bufferPutInner
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-### _bufferNewInner
-
-> Create an empty buffer of the specified size
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cols` | `-` | - |
-| `rows` | `-` | - |
-
-**Returns**: `@()`
-
-**Throws**:
-- RendererInvalidSize if cols < 1 or rows < 1
-
-### BufferNew
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `cols` | `-` | - |
-| `rows` | `-` | - |
-
-**Returns**: `@()`
-
-### _bufferResizeInner
-
-> Resize a buffer, preserving existing content where possible
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `cols` | `-` | - |
-| `rows` | `-` | - |
-| `fill` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferResize
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `cols` | `-` | - |
-| `rows` | `-` | - |
-| `fill` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferClear
-
-> Clear the entire buffer with a fill cell
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `fill` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferPut
-
-> Write a single cell at a given position
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-**Throws**:
-- RendererOutOfBounds
-
-### _bwWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-| `text` | `-` | - |
-| `idx` | `-` | - |
-| `style` | `-` | - |
-| `len` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferWrite
-
-> Write text with style at a given position, advancing cursor by display width
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | ScreenBuffer |
-| `col` | `-` | Int (1-based, must be in range) |
-| `row` | `-` | Int (1-based, must be in range) |
-| `text` | `-` | Str — normalized cell text (TAB / newline are pre-expanded) |
-| `style` | `-` | @(fg, bg, bold, dim, underline, italic) — all 6 fields required |
-
-**Returns**: `@()`
-
-**Throws**:
-- RendererOutOfBounds if col/row < 1 or > buf.cols / buf.rows
-- Notes: truncates at right edge; wide chars (width 2) occupy 2 cells,
-- second cell is a space placeholder with the same style; width 0
-- graphemes (combining marks / control) are skipped.
-
-### _frColWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col0` | `-` | - |
-| `curCol` | `-` | - |
-| `curRow` | `-` | - |
-| `width` | `-` | - |
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-### _frRowWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col0` | `-` | - |
-| `row0` | `-` | - |
-| `curRow` | `-` | - |
-| `width` | `-` | - |
-| `height` | `-` | - |
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferFillRect
-
-> Fill a rectangular region with a cell
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-| `width` | `-` | - |
-| `height` | `-` | - |
-| `cell` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferBlit
-
-> Composite sub onto main at (col, row); overflow clips; right-edge wide-char leads drop
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `main` | `ScreenBuffer` | target buffer |
-| `sub` | `ScreenBuffer` | source buffer to lay into main |
-| `col` | `Int` | 1-based column in main where sub's (1,1) lands |
-| `row` | `Int` | 1-based row in main where sub's (1,1) lands |
-
-**Returns**: `ScreenBuffer`
-
-**AI-Context**:
-- Cells of `sub` that overflow main's right/bottom edge are silently clipped.
-- If clipping would land a wide-char lead at main's right edge while its
-  trailing placeholder falls outside, the lead is dropped too — matches
-  `BufferWrite`'s right-edge policy and preserves `ScreenBuffer`'s
-  wide-char pairing invariant for downstream `BufferDiff` / `RenderFull`.
-- `(col, row)` past the main's bounds (to the right or below) → no-op.
-- `col < 1` or `row < 1` → `RendererOutOfBounds`.
-
-### _rfCellWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `c` | `-` | - |
-| `r` | `-` | - |
-| `acc` | `-` | - |
-
-**Returns**: `Str`
-
-### _rfRowWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-| `r` | `-` | - |
-| `acc` | `-` | - |
-
-**Returns**: `Str`
-
-### _renderFullInner
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-
-**Returns**: `Str`
-
-### RenderFull
-
-> Render the entire buffer as an ANSI string
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `buf` | `-` | - |
-
-**Returns**: `Str`
-
-### _diffCellsWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-| `idx` | `-` | - |
-| `acc` | `-` | - |
-| `total` | `-` | - |
-
-**Returns**: `@()`
-
-### _diffAppendVisOp
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ops` | `-` | - |
-| `kindTag` | `-` | - |
-
-**Returns**: `@()`
-
-### _diffAppendMoveOp
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ops` | `-` | - |
-| `col` | `-` | - |
-| `row` | `-` | - |
-
-**Returns**: `@()`
-
-### _diffVisibility
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-| `ops` | `-` | - |
-
-**Returns**: `@()`
-
-### _diffPosition
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-| `ops` | `-` | - |
-
-**Returns**: `@()`
-
-### _diffSameSize
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-
-**Returns**: `@()`
-
-### BufferDiff
-
-> Generate a minimal list of diff operations between two buffers
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-
-**Returns**: `@()`
-
-### _renderOp
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `op` | `-` | - |
-
-**Returns**: `Str`
-
-### _roWorker
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ops` | `-` | - |
-| `idx` | `-` | - |
-| `total` | `-` | - |
-| `acc` | `-` | - |
-
-**Returns**: `Str`
-
-### RenderOps
-
-> Convert a list of DiffOps to an ANSI string
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `ops` | `-` | - |
-
-**Returns**: `Str`
-
-### RenderFrame
-
-> Compare prev and next buffers, produce minimal ANSI output
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `prev` | `-` | - |
-| `next` | `-` | - |
-
-**Returns**: `@()`
 
 ## Bindings
 
 ### Cell
 
 > One cell of data (character + style)
+
+**AI-Context**:
+Default text is " ". The renderer normalizes empty
+text to " " for rendering. Wide-char placeholder cells also
+carry " " as the second-half text.
 
 ### CellStyle
 
@@ -884,9 +452,19 @@ underline <= false, italic <= false)` — every field must be present.
 
 > Virtual screen buffer (row-major flat cells)
 
+**AI-Context**:
+Use `BufferNew[](cols, rows)` to allocate. Direct
+construction is allowed but the cells list length must equal
+cols*rows or the native renderer rejects the buffer with
+`RendererInvalidArg`.
+
 ### DiffOpKind
 
 > Diff operation kind
+
+**AI-Context**:
+Tag values are frozen — the Rust `renderer::diff`
+matches against these literals. Renumbering breaks the addon ABI.
 
 ### DiffOp
 
@@ -1359,6 +937,147 @@ RawModeLeave[]()
 **AI-SideEffects**:
 - stdin の termios を復元する
 
+### MeasureGrapheme
+
+> 単一グラフィムの表示幅と分類を測定する
+
+**Returns**: Notes: 空文字列は @(width <= 0, mode <= WidthMode.Zero) を返す
+
+### DisplayWidth
+
+> 文字列の合計表示幅をセル数で返す
+
+**Returns**: Notes: 結合文字 / 制御文字は 0、East Asian Wide / Fullwidth は 2、それ以外は 1
+
+### NormalizeCellText
+
+> セルテキストを正規化する (TAB -> 4 spaces, \n/\r 除去, 空文字列 -> " ")
+
+**Returns**: Str
+
+### TruncateWidth
+
+> 文字列を指定表示幅で切り詰める (右端で打ち切り、wide char 境界で余剰は drop)
+
+**Returns**: Notes: width < 1 は "" を返す
+
+### PadWidth
+
+> 右側を空白で埋めて指定表示幅に揃える
+
+**Returns**: Notes: 既に width 以上の場合は text をそのまま返す
+
+### BufferNew
+
+> 空の ScreenBuffer を指定サイズで確保する
+
+**Returns**: ScreenBuffer — cells は row-major で cols*rows 個の default Cell
+
+**Throws**:
+- RendererInvalidSize — cols < 1 または rows < 1
+
+**AI-Context**:
+native 実装では `vec![default; cols*rows]` で一括確保。
+`@a.6` までは pure Taida の `Append` ループで O(N²) だったため、
+120×40 で 3.3 秒を消費する hot path だった (TMB-024 で解消)。
+
+### BufferResize
+
+> ScreenBuffer を新しいサイズで再確保する
+
+**Returns**: ScreenBuffer
+
+**Throws**:
+- RendererInvalidSize — cols < 1 または rows < 1
+- Notes:
+- - cells は default Cell で seed される（fill 引数は v1 互換のため残置、無効化）
+- - cursor_col / cursor_row は新 bounds 内に clamp される
+- - cursor_visible は prev から継承される
+
+### BufferPut
+
+> 単一セルを (col, row) に書き込む
+
+**Returns**: ScreenBuffer — 同じサイズの新パック
+
+**Throws**:
+- RendererOutOfBounds — col<1 / row<1 / col>cols / row>rows
+
+**AI-Context**:
+内部表現は Vec<Cell> に直接書き込むため O(1)。
+
+### BufferWrite
+
+> テキストを (col, row) から書き、表示幅で進める
+
+**Returns**: ScreenBuffer
+
+**Throws**:
+- RendererOutOfBounds — 開始位置が範囲外
+- Notes: 右端で truncate；wide char は 2 セル使用、2 セル目はスペース placeholder；
+- width 0 grapheme (combining mark / control) はスキップ。
+
+### BufferFillRect
+
+> 矩形領域を cell で塗りつぶす
+
+**Throws**:
+- RendererOutOfBounds — col<1 / row<1。width<1 / height<1 は no-op。
+
+### BufferClear
+
+> バッファ全体を fill cell で塗りつぶす
+
+### BufferDiff
+
+> 2 つのバッファ間の最小 diff 操作リストを生成する
+
+**Returns**: @(ops <= @[DiffOp...], requires_full <= Bool)
+
+**AI-Context**:
+requires_full=true は cols/rows が異なる場合。
+呼び出し側は RenderFull(next) にフォールバックする。
+
+### RenderFull
+
+> バッファ全体を ANSI 文字列としてレンダリングする
+
+**Returns**: Str — CursorHide + 行毎 CursorMoveTo + cell text + ResetStyle + CursorMoveTo(cursor) + (visible なら CursorShow)
+
+### RenderOps
+
+> DiffOp リストを ANSI 文字列に変換する
+
+**Returns**: Str
+
+### RenderFrame
+
+> prev / next の差分を最小 ANSI 出力として生成する
+
+**Returns**: @(text <= Str, next <= ScreenBuffer)
+
+**AI-Context**:
+requires_full なら RenderFull(next)、それ以外は RenderOps(diff.ops)。
+
+### BufferBlit
+
+> sub バッファを main バッファの (col, row) 位置に合成する
+
+**Returns**: ScreenBuffer — main と同じ cols/rows の新パック
+
+**Throws**:
+- RendererOutOfBounds — col<1 / row<1
+- Notes:
+- - main からはみ出す sub のセルは silently clip（BufferFillRect と同じ規約）。
+- - (col, row) が main の範囲外（右/下）を指すなら no-op（main をそのまま返す）。
+- - wide char placeholder cell（text=" " の 2 セル目）は sub からそのまま運ばれる。
+- - style 属性（fg/bg/bold/dim/underline/italic）はセル毎に保持される。
+
+**AI-Context**:
+TUI の pane 合成用プリミティブ。pure-Taida ループで sub を main に
+重ねると Taida の list index O(n) が効いて O(N²) になる（TMB-022）。
+この native 実装は Vec<Cell> 上の線形 copy で O(N) に抑える。
+
 ### EventKind
 
 > イベント種別を表す列挙パック（4バリアント）
@@ -1537,16 +1256,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 |-----------|------|-------------|
 | `ch` | `-` | - |
 | `count` | `-` | - |
-
-**Returns**: `Str`
-
-### _repeatLoop
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `acc` | `-` | - |
-| `ch` | `-` | - |
-| `remaining` | `-` | - |
 
 **Returns**: `Str`
 
@@ -1731,25 +1440,16 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **Returns**: `Str`
 
-### _padLoop
+### PadWidth
 
 > Pad text with spaces on the right to reach a target display width
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `s` | `-` | - |
-| `remaining` | `-` | - |
+| `text` | `-` | Str -- the text to pad |
+| `width` | `-` | Int -- target display width |
 
 **Returns**: `Str` - Str -- padded text
-
-### PadWidth
-
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `text` | `-` | - |
-| `width` | `-` | - |
-
-**Returns**: `Str`
 
 ## Bindings
 
@@ -1759,86 +1459,6 @@ non-TTY (pipe / redirect) でも panic せず動作する（成功経路）。
 
 **AI-Context**:
 Compare with MeasureGrapheme result `mode` field.
-
-# Native binding routes (Phase 8 / TMB-020, Phase 9 / TMB-022)
-
-Nine renderer hot-path entries are implemented in the Rust addon
-(`src/renderer/{state,ops,diff,blit}.rs`) and dispatched from the facade
-through pre-injected addon sentinels. The public `<<<` surface in
-`taida/terminal.td` is unchanged from `@a.4` except for the
-`BufferBlit` addition in `@a.6`, and the implementation moved from
-pure Taida (O(N²) list-replace) to native (`Vec<Cell>` direct
-mutation) to fix TMB-020 / TMB-022.
-
-## Function table layout
-
-`native/addon.toml` declares 16 entries (append-only since `@a.3`'s
-7-entry table). The first 7 (`terminalSize` through `write`) keep their
-v1 ABI position and arity. The 8 entries appended in `@a.5` plus the
-1 entry appended in `@a.6` are:
-
-| Sentinel (lowercase) | Arity | Public alias (uppercase) | Implementation |
-|----------------------|-------|--------------------------|----------------|
-| `bufferPut` | 4 | `BufferPut` | `src/renderer/ops.rs::buffer_put_impl` |
-| `bufferWrite` | 5 | `BufferWrite` | `src/renderer/ops.rs::buffer_write_impl` |
-| `bufferFillRect` | 6 | `BufferFillRect` | `src/renderer/ops.rs::buffer_fill_rect_impl` |
-| `bufferClear` | 2 | `BufferClear` | `src/renderer/ops.rs::buffer_clear_impl` |
-| `bufferDiff` | 2 | `BufferDiff` | `src/renderer/diff.rs::buffer_diff_impl` |
-| `renderFull` | 1 | `RenderFull` | `src/renderer/diff.rs::render_full_impl` |
-| `renderFrame` | 2 | `RenderFrame` | `src/renderer/diff.rs::render_frame_impl` |
-| `renderOps` | 1 | `RenderOps` | `src/renderer/diff.rs::render_ops_impl` |
-| `bufferBlit` | 4 | `BufferBlit` | `src/renderer/blit.rs::buffer_blit_impl` |
-
-## Dispatch placement
-
-The native dispatch aliases (`BufferPut <= bufferPut`, etc.) live in
-`taida/terminal.td`, **not** in `taida/renderer.td`. Reason: the addon
-sentinel is pre-injected only into the top-level package facade's env;
-sub-imports (`>>> ./renderer.td`) do not see the lowercase sentinel
-binding. `taida/renderer.td` keeps the pure-Taida type definitions
-(`Cell` / `CellStyle` / `ScreenBuffer` / `DiffOpKind` / `DiffOp`) and
-the cheap allocation helpers (`BufferNew` / `BufferResize`).
-
-## FFI marshalling contract
-
-Each native entry follows the same shape:
-
-1. Receive pack arguments. `parse_buffer` / `parse_cell` /
-   `parse_style` / `parse_diff_op` (in `src/renderer/state.rs`) decode
-   pack -> Rust value.
-2. Run the hot path against `Vec<Cell>` (mutate in place after a single
-   clone of the input vec).
-3. Re-emit the result as a pack via `build_buffer` / `build_diff_result`
-   / `build_frame_result`.
-
-A `panic::catch_unwind` barrier wraps every entry so any Rust panic
-becomes a `RendererPanic` (6005) error rather than unwinding across
-the FFI boundary.
-
-## Error band 6xxx
-
-Renderer errors are deterministic and never silently fall back:
-
-| Code | Variant | When |
-|------|---------|------|
-| 6001 | `RendererInvalidArg` | wrong arity / bad pack shape |
-| 6002 | `RendererOutOfBounds` | col/row outside `1..=cols/rows` |
-| 6003 | `RendererInvalidSize` | cols < 1 or rows < 1 |
-| 6004 | `RendererBuildValue` | host-side pack construction failure |
-| 6005 | `RendererPanic` | Rust panic captured at the FFI boundary |
-
-The 6xxx band is non-overlapping with the existing 1xxx-5xxx bands
-(`TerminalSize` / `ReadKey` / `RawMode` / `ReadEvent` / `Write`).
-
-## Bench gate (TM-8g)
-
-`benches/renderer_perf.rs` exercises the native entries via
-`renderer_bench_api` (a `#[doc(hidden)]` re-export that skips the FFI
-marshalling cost so the hot path itself is measured). CI runs
-`cargo bench --bench renderer_perf -- --noplot` and gates on the five
-budgeted benches via `scripts/check-bench-budget.sh`. The
-informational `scripts/compare-bench-baseline.sh` writes a markdown
-table to `$GITHUB_STEP_SUMMARY` comparing the run against
-`benches/baseline.json` (committed). Both scripts are ABI-agnostic and
-do not gate on facade behaviour.
+Tag values are frozen — the Rust `width.rs` matches against these
+literals (Narrow=0, Wide=1, Zero=2, Ambiguous=3).
 

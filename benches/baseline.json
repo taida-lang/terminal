@@ -1,7 +1,7 @@
 {
-  "_comment": "Bench baseline (TM-8g). Median nanoseconds for the budgeted benches in benches/renderer_perf.rs, re-captured 2026-04-23 after TMB-022 (BufferBlit addition). This file feeds scripts/compare-bench-baseline.sh — an *informational* PR diff report only. The hard fail gate is driven by the hard-coded absolute budgets in scripts/check-bench-budget.sh; budgets are deliberately NOT stored here so a baseline-refresh PR cannot accidentally relax the gate. Re-baseline procedure: run benches locally, copy median.point_estimate from target/criterion/<bench>/new/estimates.json into the median_ns fields below, bump captured/captured_machine, and document the rationale in CHANGELOG.md.",
-  "captured": "2026-04-23",
-  "captured_after": "TMB-022 (BufferBlit addition)",
+  "_comment": "Bench baseline (TM-8g). Median nanoseconds for the budgeted benches in benches/renderer_perf.rs, re-captured 2026-04-24 after TMB-024 / TMB-025 / TMB-026 (BufferNew / Width native migration). This file feeds scripts/compare-bench-baseline.sh — an *informational* PR diff report only. The hard fail gate is driven by the hard-coded absolute budgets in scripts/check-bench-budget.sh; budgets are deliberately NOT stored here so a baseline-refresh PR cannot accidentally relax the gate. Re-baseline procedure: run benches locally, copy median.point_estimate from target/criterion/<bench>/new/estimates.json into the median_ns fields below, bump captured/captured_machine, and document the rationale in CHANGELOG.md.",
+  "captured": "2026-04-24",
+  "captured_after": "TMB-024 / TMB-025 / TMB-026 (BufferNew / DisplayWidth / PadWidth native migration)",
   "captured_machine": "developer-laptop (CI runners are noisier; thresholds below tolerate that)",
   "regression_warn_pct": 15,
   "improvement_note_pct": 5,
@@ -33,6 +33,18 @@
     "buffer_blit_partial_120x40_into_240x80": {
       "median_ns": 81200,
       "note": "BufferBlit 120x40 sub at (61,21) into 240x80 main (TMB-022; scales with sub size, not main size)"
+    },
+    "buffer_new_120x40": {
+      "median_ns": 150770,
+      "note": "BufferNew 120x40 (TMB-024; vec![default; 4800] + compute_row_hashes. pure-Taida baseline was 3335 ms on Hachikuma _perf_isolate.td, ~22000x improvement)"
+    },
+    "display_width_n1600": {
+      "median_ns": 3124,
+      "note": "DisplayWidth for a 1600-char input (TMB-025; single chars() pass + width-table lookup. pure-Taida probe measured 79 ms for same N, ~25000x improvement)"
+    },
+    "pad_width_n1600": {
+      "median_ns": 406,
+      "note": "PadWidth for a 22-char label padded to column 1600 (TMB-025 + TMB-026; String::with_capacity + single push loop. pure-Taida _padLoop was O(N^2) concat)"
     }
   }
 }

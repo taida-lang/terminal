@@ -173,9 +173,13 @@ fn function_table_contains_read_event() {
     let functions = __test_only::functions();
     // Append-only contract: TMB-016 made it 7 entries; TMB-020 /
     // Phase 8 appended 8 renderer entries → 15 total; TMB-022 /
-    // Phase 9 appended `bufferBlit` at position 15 → 16 total.
-    // readEvent stayed at its original position 5.
-    assert_eq!(functions.len(), 16, "function table must have 16 entries");
+    // Phase 9 appended `bufferBlit` at position 15 → 16 total;
+    // TMB-024 / Phase 10 appended `bufferNew` + `bufferResize` at
+    // positions 16..=17 → 18 total; TMB-025 / Phase 10 appended
+    // `measureGrapheme` + `displayWidth` + `normalizeCellText`
+    // + `truncateWidth` + `padWidth` at positions 18..=22 → 23
+    // total. readEvent stayed at its original position 5.
+    assert_eq!(functions.len(), 23, "function table must have 23 entries");
 
     // readEvent must be at index 5
     let f = &functions[5];
