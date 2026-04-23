@@ -221,17 +221,17 @@ LineEditorRender state =
   @(line <= ClearLine() + state.prompt + displayText, cursor_col <= cursorCol)
 => :@()
 
+// TMB-026: `_maskLoop` used `acc + "*"` concat N times, which is
+// O(N²) because `+` allocates a new `String` each step. The
+// interpreter's `Repeat[str, n]()` mold is O(N) via Rust
+// `str::repeat`, so Password-mode rendering of an N-character line
+// is now linear.
 _getDisplayText state =
-  | state.mode == PromptMode.Password |> _maskLoop("", state.text.length())
+  | state.mode == PromptMode.Password |> Repeat["*", state.text.length()]()
   | state.text == "" |>
     | state.placeholder == "" |> ""
     | _ |> state.placeholder
   | _ |> state.text
-=> :Str
-
-_maskLoop acc remaining =
-  | remaining < 1 |> acc
-  | _ |> _maskLoop(acc + "*", remaining - 1)
 => :Str
 
 _cursorWidthCalc state =

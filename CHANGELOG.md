@@ -6,6 +6,117 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
+## [@a.7] — 2026-04-24 (Phase 10 / TMB-024 / TMB-025 / TMB-026)
+
+### Fixed
+- **Buffer allocation + width computation + string concat ループを native に移管
+  して残存 O(N²) hot path 3 件を解消** (TMB-024 / TMB-025 / TMB-026 / Phase 10).
+  `@a.6` で renderer core の cell mutation (`BufferPut` / `BufferWrite` /
+  `BufferBlit` ...) は O(1)/cell まで落ちたが、以下 3 件の pure-Taida 実装が
+  依然 O(N²) で、Hachikuma の `appLoop` が毎 frame × 2 回ここを踏むため
+  描画 1 回あたり数秒のレイテンシが残っていた:
+  - **TMB-024**: `renderer.td::_makeCellsLoop` が `Append[acc, fill]()` を
+    N 回呼んで cells 配列を構築していた。120×40 = 4800 cells で
+    `BufferNew` 1 回に **3335 ms** を計測 (`hachikuma/docs/smoke/_perf_isolate.td`、
+    `BufferResize` も同ループで同等のコスト)。
+  - **TMB-025**: `width.td::DisplayWidth` / `NormalizeCellText` /
+    `TruncateWidth` / `PadWidth` / `MeasureGrapheme` が
+    `CharAt[src, idx]()` + `acc + ch` ループで **二重 O(N²)**
+    (文字列 slice も concat も O(N))。1600 文字入力で DisplayWidth
+    単体 **79 ms**、tui_screen の 22 call site で frame あたり
+    数百 ms を食っていた。
+  - **TMB-026**: `widgets.td::_repeatLoop` / `prompt.td::_maskLoop` /
+    `width.td::_padLoop` の string concat ループが O(N²)
+    (ProgressBar / StatusLine / Password マスク / PadWidth fallback)。
+  Phase 10 で以下を Rust native (`src/renderer/alloc.rs` / `src/width.rs`)
+  へ移管:
+  - `BufferNew` / `BufferResize` —
+    `vec![Cell::default_space(); cols*rows]` で一括確保 + 既存 cells からの
+    line-wise コピー (resize)。`compute_row_hashes` を populate するので
+    TMB-021 fast-path もそのまま機能。
+  - `DisplayWidth` / `MeasureGrapheme` / `NormalizeCellText` /
+    `TruncateWidth` / `PadWidth` — `chars()` 1 パス + width table (Phase 4
+    policy と `width_table_matches_renderer_ops` で同期) + 必要に応じた
+    `String::with_capacity` + 単一の append loop で全て O(N)。
+  - `_repeatLoop` / `_maskLoop` / `_padLoop` は `Repeat[ch, n]()` mold に
+    置換 (interpreter の `Repeat` は `src/interpreter/mold_eval.rs:504` で
+    `s.repeat(n)` → O(N) primitive を確認済み)。
+  pure-Taida facade (`taida/renderer.td`) は型 pack (`Cell` / `CellStyle` /
+  `ScreenBuffer` / `DiffOpKind` / `DiffOp`) のみに縮小 (7 → 5 export)。
+  `taida/width.td` は sub-import 経由 (`widgets.td` / `prompt.td`) の
+  fallback 用に pure-Taida 実装を保持 (Taida は imported symbol の
+  再束縛を禁止するため) し、`_padLoop` を `Repeat[" ", n]()` に置換して
+  O(N²) だけは解消。`taida/terminal.td` は `>>>` import を `WidthMode`
+  のみに絞り、native dispatch alias 7 件で 5 width 関数 + 2 alloc 関数を
+  native にルーティング。
+
+### Added
+- **Function table を 16 → 23 entries に拡張** (append-only, ABI v1 lock 維持):
+  - TMB-024: `bufferNew` (arity 2, position 16), `bufferResize`
+    (arity 4, position 17).
+  - TMB-025: `measureGrapheme` (arity 2, position 18), `displayWidth`
+    (arity 1, position 19), `normalizeCellText` (arity 1, position 20),
+    `truncateWidth` (arity 2, position 21), `padWidth` (arity 2,
+    position 22).
+  - 既存 16 entries の位置・arity は不変。
+  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
+- **Width error band 6101..=6103** — `WidthInvalidArg` (6101),
+  `WidthBuildValue` (6102), `WidthPanic` (6103)。既存の Renderer band
+  (6001..=6005) と非衝突。`error_name_convention_lock` の期待 symbol は
+  32 → 35 に拡張。
+- **`src/renderer/alloc.rs`** — `buffer_new` / `buffer_resize` pure helper と
+  FFI `*_impl` entry。`vec!` 一括確保 + `compute_row_hashes` populate。
+- **`src/width.rs`** — 5 pure helper (`display_width` / `measure_grapheme` /
+  `normalize_cell_text` / `truncate_width` / `pad_width`) と対応 FFI
+  `*_impl` entry。`char_width` 表は `src/renderer/ops.rs` の private 表と
+  `width_table_matches_renderer_ops` regression test で一致を検証
+  (片側だけ更新すると CI fail)。
+- **benches/renderer_perf.rs に 3 ベンチ追加** (TMB-024 / TMB-025 budget):
+  | bench | budget | measured (local) |
+  |-------|--------|------------------|
+  | `buffer_new_120x40` | < 500 µs | ~150 µs |
+  | `display_width_n1600` | < 50 µs | ~3 µs |
+  | `pad_width_n1600` | < 50 µs | ~0.4 µs |
+
+  pure-Taida 比:
+  - `BufferNew 120×40`: 3335 ms → ~150 µs (~22,000× 改善)
+  - `DisplayWidth N=1600`: 79 ms → ~3 µs (~25,000× 改善)
+  - `PadWidth` (22 文字 → 1600 col): O(N²) concat → O(N) 1 pass (pure-Taida
+    では測定不能な規模で timeout していた)
+- **`scripts/check-bench-budget.sh`** の BUDGETS 配列に 3 エントリ追加
+  (7 → 10)、hard gate の対象を拡張。
+- **`benches/baseline.json`** を TMB-024 / TMB-025 / TMB-026 後に再キャプチャ
+  (3 benches 追加、既存 7 benches は ±1% 範囲で据え置き)。
+
+### Internal
+- **47 unit tests 追加** (`cargo test` 439 → **486 PASS**):
+  - `src/renderer/alloc.rs`: 13 テスト (default cell / 4800 cells /
+    row_hashes populate / resize bigger & smaller / cursor clamp / arity /
+    invalid state / linear scale guard)。
+  - `src/width.rs`: 34 テスト (5 関数 × 各種境界 — ASCII / 全角 /
+    combining / control char / CJK truncate / empty input / overflow、
+    `width_table_matches_renderer_ops` で ops.rs の private 表と sync
+    検証、2 本の linear scale guard で O(N) を pin)。
+- `renderer_bench_api` に `buffer_new` / `buffer_resize` / `display_width` /
+  `pad_width` を追加 (`#[doc(hidden)] __bench` 経由)。
+- 既存の function count 検証 (`descriptor_advertises_*_functions`、
+  `tests/ansi_facade.rs`、`tests/event_non_tty.rs`、
+  `tests/read_key_non_tty.rs`) を 16 → 23 に更新、
+  `error_name_convention_lock` の expected 32 → 35 に拡張、
+  `error_code_ranges_are_frozen_unix` に Width 3 エントリ追加。
+
+### Known issues
+- **TMB-027 (LineEditor cumulative O(N²))** は未解消のまま残存。
+  `prompt.td::_insertAt` / `_deleteAtDo` / `_cursorWidthCalc` は毎キー
+  入力で `Slice[s, 0, pos]() + ch + Slice[...]()` の 2 回 O(len) slice +
+  1 回 O(len) concat + `DisplayWidth` 呼び出しを行い、入力長 N の
+  shell line / multiline prompt で累積 O(N²) のレイテンシが発生する。
+  lang core の String が immutable (rope / gap buffer を持たない) こと
+  が根因のため、terminal addon 単独では解消不可 — C26 / D27 の lang core
+  work に依存する。`@a.7` は TMB-024 / 025 / 026 の ~22,000× 改善で
+  Hachikuma `appLoop` の hot path 問題は解消しているため、TMB-027 は
+  known issue としてリリース。
+
 ## [@a.6] — 2026-04-23 (Phase 9 / TMB-022)
 
 ### Fixed

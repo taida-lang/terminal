@@ -225,9 +225,12 @@ fn read_key_returns_not_a_tty_error_when_stdin_is_not_a_tty() {
     let functions = __test_only::functions();
     // Append-only contract: TMB-016 made it 7 entries; TMB-020 /
     // Phase 8 appended 8 renderer entries → 15 total; TMB-022 /
-    // Phase 9 appended `bufferBlit` at position 15 → 16 total.
-    // The count can grow but never shrink.
-    assert_eq!(functions.len(), 16);
+    // Phase 9 appended `bufferBlit` at position 15 → 16 total;
+    // TMB-024 / Phase 10 appended `bufferNew` + `bufferResize` at
+    // positions 16..=17 → 18 total; TMB-025 / Phase 10 appended
+    // 5 width entries at positions 18..=22 → 23 total. The count
+    // can grow but never shrink.
+    assert_eq!(functions.len(), 23);
 
     // Step 2: drive the init callback so the addon captures our host
     // pointer (this is the same handshake the Native loader performs).

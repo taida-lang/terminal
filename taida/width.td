@@ -14,11 +14,33 @@
 //   4. Ambiguous -> width 1 (v1 decision)
 //   5. TAB -> renderer layer forbids; pre-expand to spaces
 //   6. Newline -> forbidden in cell text
+//
+// History:
+//   - Phase 4 (TM-4b/4c): pure-Taida implementation on top of CharAt /
+//     CodePoint. Functionally correct but O(N²) because CharAt is
+//     O(idx) in the interpreter and `acc + ch` re-allocates per step.
+//   - Phase 10 (TMB-025): native implementation behind the same facade
+//     names. The addon entries `measureGrapheme` / `displayWidth` /
+//     `normalizeCellText` / `truncateWidth` / `padWidth` are
+//     pre-injected as sentinels *only* into `terminal.td`'s env, so
+//     the package-level public surface uses the native fast path. The
+//     pure-Taida implementations below are kept so that **sub-module
+//     sub-imports** (`widgets.td`, `prompt.td`) continue to type-check
+//     and run without requiring a sentinel. Downstream code that
+//     imports `taida-lang/terminal` goes through `terminal.td` and
+//     therefore picks up the native alias.
+//
+// Sub-module callers (`widgets.td`, `prompt.td`) still see the
+// pure-Taida fallback — typical inputs are short (< 200 chars) so the
+// O(N²) cost is bounded and does not regress Hachikuma's frame budget.
+// See TMB-025 note for the scaling envelope.
 
 // -- Width Mode Enum --
 
 ///@ Purpose: Unicode width category enum pack
 ///@ AI-Context: Compare with MeasureGrapheme result `mode` field.
+///@   Tag values are frozen — the Rust `width.rs` matches against these
+///@   literals (Narrow=0, Wide=1, Zero=2, Ambiguous=3).
 WidthMode <= @(
   Narrow    <= 0
   Wide      <= 1
@@ -176,16 +198,14 @@ TruncateWidth text width =
 ///@   text: Str -- the text to pad
 ///@   width: Int -- target display width
 ///@ Returns: Str -- padded text
-_padLoop s remaining =
-  | remaining < 1 |> s
-  | _ |> _padLoop(s + " ", remaining - 1)
-=> :Str
-
+// TMB-026 FIXED: the prior `_padLoop` used `s + " "` concat N times
+// which was O(N²). Replaced with `Repeat[" ", n]()` which lowers to
+// Rust `str::repeat` (O(N)).
 PadWidth text width =
   current <= DisplayWidth(text)
   | current > width |> text
   | current == width |> text
-  | _ |> _padLoop(text, width - current)
+  | _ |> text + Repeat[" ", width - current]()
 => :Str
 
 <<< @(WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth)

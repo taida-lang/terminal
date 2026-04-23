@@ -22,6 +22,15 @@ renderFrame = 2
 renderOps = 1
 # Phase 9 / TMB-022 — sub-buffer blit (append-only)
 bufferBlit = 4
+# Phase 10 / TMB-024 — buffer allocation (append-only)
+bufferNew = 2
+bufferResize = 4
+# Phase 10 / TMB-025 — Unicode width (append-only)
+measureGrapheme = 1
+displayWidth = 1
+normalizeCellText = 1
+truncateWidth = 2
+padWidth = 2
 
 [library.prebuild]
 url = "https://github.com/taida-lang/terminal/releases/download/{version}/lib{name}-{target}.{ext}"

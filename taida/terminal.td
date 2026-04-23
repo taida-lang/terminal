@@ -174,20 +174,91 @@ RawModeLeave <= rawModeLeave
 //
 // Pure Taida renderer foundation: Unicode width, virtual buffer, diff engine.
 
->>> ./width.td => @(WidthMode, MeasureGrapheme, DisplayWidth, NormalizeCellText, TruncateWidth, PadWidth)
+>>> ./width.td => @(WidthMode)
 
->>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp, BufferNew, BufferResize)
-
-// ── Renderer native dispatch (Phase 8 / TMB-020) ────────────────
+// ── Width native dispatch (Phase 10 / TMB-025) ──────────────────
 //
-// The 8 hot-path renderer entries (`bufferPut` / `bufferWrite` /
-// `bufferFillRect` / `bufferClear` / `bufferDiff` / `renderFull` /
-// `renderFrame` / `renderOps`) are pre-injected as addon sentinels
+// The 5 width helpers (`measureGrapheme` / `displayWidth` /
+// `normalizeCellText` / `truncateWidth` / `padWidth`) are pre-injected
+// as addon sentinels in this facade's env. We alias them under their
+// public uppercase names so callers see the pinned @a.6 surface
+// unchanged. Taida forbids re-binding an imported symbol, so this
+// file imports **only `WidthMode`** from `width.td` (the pure-Taida
+// enum pack) and resolves the 5 function names through the native
+// sentinels below. Sub-modules (`widgets.td`, `prompt.td`) that
+// `>>>` width.td directly still pick up the pure-Taida versions
+// because they don't get addon sentinels injected into their env;
+// typical sub-module inputs are short (< 200 chars) so the O(N²)
+// behaviour is bounded by the frame budget.
+
+///@ Purpose: 単一グラフィムの表示幅と分類を測定する
+///@ Params: text: Str (最初の scalar value のみ評価)
+///@ Returns: @(width: Int, mode: Int) — mode は WidthMode タグ (Narrow=0 / Wide=1 / Zero=2)
+///@ Notes: 空文字列は @(width <= 0, mode <= WidthMode.Zero) を返す
+MeasureGrapheme <= measureGrapheme
+
+///@ Purpose: 文字列の合計表示幅をセル数で返す
+///@ Params: text: Str
+///@ Returns: Int
+///@ Notes: 結合文字 / 制御文字は 0、East Asian Wide / Fullwidth は 2、それ以外は 1
+DisplayWidth <= displayWidth
+
+///@ Purpose: セルテキストを正規化する (TAB -> 4 spaces, \n/\r 除去, 空文字列 -> " ")
+///@ Params: text: Str
+///@ Returns: Str
+NormalizeCellText <= normalizeCellText
+
+///@ Purpose: 文字列を指定表示幅で切り詰める (右端で打ち切り、wide char 境界で余剰は drop)
+///@ Params: text: Str, width: Int (1-based)
+///@ Returns: Str
+///@ Notes: width < 1 は "" を返す
+TruncateWidth <= truncateWidth
+
+///@ Purpose: 右側を空白で埋めて指定表示幅に揃える
+///@ Params: text: Str, width: Int
+///@ Returns: Str
+///@ Notes: 既に width 以上の場合は text をそのまま返す
+PadWidth <= padWidth
+
+>>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp)
+
+// ── Renderer native dispatch (Phase 8 / TMB-020 + Phase 10 / TMB-024) ────
+//
+// The hot-path renderer entries are pre-injected as addon sentinels
 // in this facade's env. We alias them under their public uppercase
-// names so callers continue to see the `@a.4` surface unchanged.
+// names so callers continue to see the pinned surface unchanged.
 // The pure-Taida types (`Cell` / `CellStyle` / `ScreenBuffer` /
-// `DiffOpKind` / `DiffOp` / `BufferNew` / `BufferResize`) come from
-// `renderer.td` above.
+// `DiffOpKind` / `DiffOp`) come from `renderer.td` above; allocation
+// entries (`bufferNew` / `bufferResize`) now dispatch to native too
+// (TMB-024, Phase 10) — `BufferNew` / `BufferResize` were pure-Taida
+// until `@a.6` but the `_makeCellsLoop` append-based allocator was
+// `O(N²)` in cells count (120×40 measured at ~3.3 s on Hachikuma
+// runApp hot path).
+
+///@ Purpose: 空の ScreenBuffer を指定サイズで確保する
+///@ Params:
+///@   cols: Int (>= 1)
+///@   rows: Int (>= 1)
+///@ Returns: ScreenBuffer — cells は row-major で cols*rows 個の default Cell
+///@ Throws: RendererInvalidSize — cols < 1 または rows < 1
+///@ AI-Context: native 実装では `vec![default; cols*rows]` で一括確保。
+///@   `@a.6` までは pure Taida の `Append` ループで O(N²) だったため、
+///@   120×40 で 3.3 秒を消費する hot path だった (TMB-024 で解消)。
+BufferNew <= bufferNew
+
+///@ Purpose: ScreenBuffer を新しいサイズで再確保する
+///@ Params:
+///@   buf:   ScreenBuffer — リサイズ元（cursor_visible のみ引き継ぐ）
+///@   cols:  Int (>= 1)
+///@   rows:  Int (>= 1)
+///@   fill:  Cell — v1 契約で無視される（default Cell で埋める）
+///@ Returns: ScreenBuffer
+///@ Throws: RendererInvalidSize — cols < 1 または rows < 1
+///@ Notes:
+///@   - cells は default Cell で seed される（fill 引数は v1 互換のため残置、無効化）
+///@   - cursor_col / cursor_row は新 bounds 内に clamp される
+///@   - cursor_visible は prev から継承される
+BufferResize <= bufferResize
 
 ///@ Purpose: 単一セルを (col, row) に書き込む
 ///@ Returns: ScreenBuffer — 同じサイズの新パック
