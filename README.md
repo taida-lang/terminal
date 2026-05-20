@@ -2,7 +2,7 @@
 
 Taida Lang official terminal package — TTY detection, size query, key / event input, raw mode, screen / cursor control, ANSI styling (16 / 256 / RGB), Unicode width, virtual buffer with diff renderer, line editor, and UX widgets.
 
-- **Release**: `@a.7` (2026-04-24)
+- **Release**: `@f.8`
 - **Backend**: Native-only addon (Rust `cdylib` + Taida facade). The interpreter dispatches to the cdylib through addon ABI v1.
 - **Exports**: 61 public symbols (see below).
 
@@ -18,41 +18,39 @@ Import the subset you need from the facade:
 
 ```taida
 >>> taida-lang/terminal => @(
-  IsTerminal, TerminalSize,
-  ReadKey, KeyKind,
-  RawModeEnter, RawModeLeave,
-  ReadEvent, EventKind, MouseKind,
-  Write,
-  ClearScreen, ClearLine,
-  AltScreenEnter, AltScreenLeave,
-  CursorMoveTo, CursorHide, CursorShow,
-  MouseTrackingEnter, MouseTrackingLeave,
-  Stylize, Color, ResetStyle,
-  Stylize256, Color256, StylizeRgb, ColorRgb,
-  DisplayWidth, MeasureGrapheme, PadWidth, TruncateWidth, NormalizeCellText, WidthMode,
+  isTerminal, terminalSize,
+  readKey, KeyKind,
+  rawModeEnter, rawModeLeave,
+  readEvent, EventKind, MouseKind,
+  write,
+  clearScreen, clearLine,
+  altScreenEnter, altScreenLeave,
+  cursorMoveTo, cursorHide, cursorShow,
+  mouseTrackingEnter, mouseTrackingLeave,
+  stylize, Color, resetStyle,
+  stylize256, Color256, stylizeRgb, ColorRgb,
+  displayWidth, measureGrapheme, padWidth, truncateWidth, normalizeCellText, WidthMode,
   Cell, CellStyle, ScreenBuffer,
-  BufferNew, BufferResize, BufferClear, BufferPut, BufferWrite,
-  BufferFillRect, BufferBlit, BufferDiff,
-  RenderFull, RenderOps, RenderFrame,
+  bufferNew, bufferResize, bufferClear, bufferPut, bufferWrite,
+  bufferFillRect, bufferBlit, bufferDiff,
+  renderFull, renderOps, renderFrame,
   DiffOpKind, DiffOp,
   PromptMode, PromptOptions, CompletionState,
   LineEditorAction, LineEditorState,
-  LineEditorNew, LineEditorStep, LineEditorRender,
-  SpinnerState, SpinnerNext, SpinnerRender,
-  ProgressOptions, ProgressBar, StatusLine
+  lineEditorNew, lineEditorStep, lineEditorRender,
+  SpinnerState, spinnerNext, spinnerRender,
+  ProgressOptions, progressBar, statusLine
 )
 ```
 
-**Call convention.** Native entries (TTY detection, raw mode, I/O,
-renderer allocation, width) are invoked through the mold-call syntax
-`Name[]()` — the empty `[]` routes the call through the addon sentinel.
-Pure-Taida helpers (ANSI strings, styling, renderer mutation, line
-editor, widgets) are plain functions called with `Name(...)`.
+**Call convention.** Public functions use normal function-call syntax
+`name(...)`. The old PascalCase mold-call aliases were removed in
+`@f.8` to comply with the current Taida naming rules.
 
 ### TTY detection and terminal size
 
 ```taida
-| IsTerminal[]("stdout") |> stdout(TerminalSize[]().cols.toString() + "x" + TerminalSize[]().rows.toString())
+| isTerminal("stdout") |> stdout(terminalSize().cols.toString() + "x" + terminalSize().rows.toString())
 ```
 
 `|` is the guard operator; `|>` separates the condition from a single
@@ -63,12 +61,12 @@ body expression. When you need a multi-arm conditional, wrap it in
 ### Single key read
 
 ```taida
-key <= ReadKey[]()
+key <= readKey()
 
 (
-  | key.kind == KeyKind.Escape |> stdout("Escaped!")
-  | key.kind == KeyKind.Enter  |> stdout("Submitted")
-  | key.kind == KeyKind.Char   |> stdout("typed: " + key.text)
+  | key.kind == KeyKind.escape |> stdout("Escaped!")
+  | key.kind == KeyKind.enter  |> stdout("Submitted")
+  | key.kind == KeyKind.char   |> stdout("typed: " + key.text)
   | _                          |> stdout("other: " + key.kind.toString())
 )
 ```
@@ -76,32 +74,32 @@ key <= ReadKey[]()
 ### Persistent raw mode + unified events
 
 ```taida
-RawModeEnter[]()
-Write[](MouseTrackingEnter())
+rawModeEnter()
+write(mouseTrackingEnter())
 
-event <= ReadEvent[]()
+event <= readEvent()
 (
-  | event.kind == EventKind.Key    |> stdout("key: " + event.key.text)
-  | event.kind == EventKind.Mouse  |> stdout("click at " + event.mouse.col.toString())
-  | event.kind == EventKind.Resize |> stdout("resize: " + event.resize.cols.toString())
+  | event.kind == EventKind.key    |> stdout("key: " + event.key.text)
+  | event.kind == EventKind.mouse  |> stdout("click at " + event.mouse.col.toString())
+  | event.kind == EventKind.resize |> stdout("resize: " + event.resize.cols.toString())
   | _                              |> stdout("unknown event")
 )
 
-Write[](MouseTrackingLeave())
-RawModeLeave[]()
+write(mouseTrackingLeave())
+rawModeLeave()
 ```
 
 ### ANSI strings (pure helpers, no side effects)
 
 ```taida
-Write[](ClearScreen())
-Write[](CursorHide())
-Write[](CursorMoveTo(10, 5))
-Write[]("hello")
-Write[](CursorShow())
+write(clearScreen())
+write(cursorHide())
+write(cursorMoveTo(10, 5))
+write("hello")
+write(cursorShow())
 ```
 
-`Write[](bytes)` writes to stdout without appending a newline — use it
+`write(bytes)` writes to stdout without appending a newline — use it
 when `stdout()`'s implicit `\n` would corrupt ANSI framing (cursor
 moves, partial redraws, spinner ticks, progress updates).
 
@@ -112,27 +110,27 @@ Style packs require all six fields (`fg`, `bg`, `bold`, `dim`,
 attributes. Call arguments must fit on a single line.
 
 ```taida
-red <= Stylize("hello", @(fg <= Color.red, bg <= "", bold <= true, dim <= false, underline <= false, italic <= false))
+red <= stylize("hello", @(fg <= Color.red, bg <= "", bold <= true, dim <= false, underline <= false, italic <= false))
 stdout(red)
 
-orange <= Stylize256("256", @(fg <= Color256(index <= 208), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
+orange <= stylize256("256", @(fg <= Color256(index <= 208), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
 stdout(orange)
 
-rgb <= StylizeRgb("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
+rgb <= stylizeRgb("rgb", @(fg <= ColorRgb(r <= 255, g <= 128, b <= 0), bg <= "", bold <= false, dim <= false, underline <= false, italic <= false))
 stdout(rgb)
 
-stdout(ResetStyle())
+stdout(resetStyle())
 ```
 
 ### Unicode display width
 
 ```taida
-stdout(DisplayWidth("hello").toString())     // 5
-stdout(DisplayWidth("漢字").toString())       // 4
-stdout(PadWidth("hi", 5))                    // "hi   "
-stdout(TruncateWidth("abcdef", 3))           // "abc"
+stdout(displayWidth("hello").toString())     // 5
+stdout(displayWidth("漢字").toString())       // 4
+stdout(padWidth("hi", 5))                    // "hi   "
+stdout(truncateWidth("abcdef", 3))           // "abc"
 
-m <= MeasureGrapheme("漢")
+m <= measureGrapheme("漢")
 stdout(m.width.toString() + " / mode=" + m.mode.toString())
 ```
 
@@ -141,18 +139,18 @@ stdout(m.width.toString() + " / mode=" + m.mode.toString())
 ```taida
 plain <= CellStyle(fg <= "", bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)
 
-prev <= BufferNew[](20, 5)
-next <= BufferWrite(prev, 1, 1, "Hello, world", plain)
+prev <= bufferNew(20, 5)
+next <= bufferWrite(prev, 1, 1, "Hello, world", plain)
 
-frame <= RenderFrame(prev, next)
-Write[](frame.text)
+frame <= renderFrame(prev, next)
+write(frame.text)
 // feed frame.next as the next `prev` to continue the diff chain
 ```
 
-`RenderFrame(prev, next)` returns `@(text, next)` with the minimal ANSI
-diff; on size change it falls back to `RenderFull(next)`. `BufferNew[]`
-and `BufferResize[]` are native (`@a.7` / TMB-024 — allocation moved off
-the pure-Taida `Append` loop to eliminate the O(N²) hot path).
+`renderFrame(prev, next)` returns `@(text, next)` with the minimal ANSI
+diff; on size change it falls back to `renderFull(next)`. `bufferNew`
+and `bufferResize` are native; allocation runs in Rust to avoid the
+pure-Taida repeated-append hot path.
 
 ### Line editor (pure state machine)
 
@@ -160,53 +158,53 @@ Taida forbids rebinding an already-defined name in the same scope, so
 each editor transition introduces a new name (`editor0`, `editor1`, …).
 
 ```taida
-opts <= PromptOptions(prompt <= "> ", initial <= "", placeholder <= "type here", mode <= PromptMode.Normal, history <= @[], completion <= @())
+opts <= PromptOptions(prompt <= "> ", initial <= "", placeholder <= "type here", mode <= PromptMode.normal, history <= @[], completion <= CompletionState)
 
-editor0 <= LineEditorNew(opts)
+editor0 <= lineEditorNew(opts)
 
-RawModeEnter[]()
-editor1 <= LineEditorStep(editor0, ReadEvent[]())
-RawModeLeave[]()
+rawModeEnter()
+editor1 <= lineEditorStep(editor0, readEvent())
+rawModeLeave()
 
-view <= LineEditorRender(editor1)
-Write[](view.text)
+view <= lineEditorRender(editor1)
+write(view.line)
 ```
 
-`LineEditorStep` is pure — it takes the current state and one event, and
+`lineEditorStep` is pure — it takes the current state and one event, and
 returns the next state. For a full event loop, write a recursive helper
 that threads the editor state through each recursion step.
 
 ### UX widgets
 
 ```taida
-stdout(ProgressBar(50, 100, ProgressOptions))
-stdout(StatusLine("left", "right", 40))
+stdout(progressBar(50, 100, ProgressOptions))
+stdout(statusLine("left", "right", 40))
 
 sp  <= SpinnerState
-sp2 <= SpinnerNext(sp)
-stdout(SpinnerRender(sp2))
+sp2 <= spinnerNext(sp)
+stdout(spinnerRender(sp2))
 ```
 
 ## Exports (61 symbols)
 
-### Native entries (Rust addon, call as `Name[](...)`)
+### Native entries (Rust addon, call as `name(...)`)
 
 | Symbol | Signature | Description |
 |--------|-----------|-------------|
-| `IsTerminal` | `(stream: Str) -> Bool` | stdin / stdout / stderr TTY check |
-| `TerminalSize` | `() -> @(cols: Int, rows: Int)` | both fields >= 1 |
-| `ReadKey` | `() -> @(kind, text, ctrl, alt, shift)` | single key read; manages raw mode for one call |
-| `RawModeEnter` | `() -> @()` | enter raw mode (paired with `RawModeLeave`) |
-| `RawModeLeave` | `() -> @()` | leave raw mode |
-| `ReadEvent` | `() -> @(kind, key, mouse, resize)` | unified event — **raw mode required** |
-| `Write` | `(bytes: Str) -> Int` | unbuffered stdout write, returns byte count, no implicit `\n` |
-| `BufferNew` | `(cols: Int, rows: Int) -> ScreenBuffer` | allocate a fresh buffer |
-| `BufferResize` | `(buf, cols, rows, fill?) -> ScreenBuffer` | reallocate, clamp cursor to new bounds |
-| `MeasureGrapheme` | `(text: Str) -> @(width, mode)` | single grapheme width + `WidthMode` tag |
-| `DisplayWidth` | `(text: Str) -> Int` | total display width (cells) |
-| `NormalizeCellText` | `(text: Str) -> Str` | empty → space, strip control chars, TAB → 4 spaces |
-| `TruncateWidth` | `(text: Str, width: Int) -> Str` | right-edge truncation, wide-char aware |
-| `PadWidth` | `(text: Str, width: Int) -> Str` | right-pad with spaces |
+| `isTerminal` | `(stream: Str) -> Bool` | stdin / stdout / stderr TTY check |
+| `terminalSize` | `() -> @(cols: Int, rows: Int)` | both fields >= 1 |
+| `readKey` | `() -> @(kind, text, ctrl, alt, shift)` | single key read; manages raw mode for one call |
+| `rawModeEnter` | `() -> @(active: Bool)` | enter raw mode; returns `active=true` on success |
+| `rawModeLeave` | `() -> @(active: Bool)` | leave raw mode; returns `active=false` on success |
+| `readEvent` | `() -> @(kind, key, mouse, resize)` | unified event — **raw mode required** |
+| `write` | `(bytes: Str) -> Int` | unbuffered stdout write, returns byte count, no implicit `\n` |
+| `bufferNew` | `(cols: Int, rows: Int) -> ScreenBuffer` | allocate a fresh buffer |
+| `bufferResize` | `(buf, cols, rows, fill?) -> ScreenBuffer` | reallocate, clamp cursor to new bounds |
+| `measureGrapheme` | `(text: Str) -> @(width, mode)` | single grapheme width + `WidthMode` tag |
+| `displayWidth` | `(text: Str) -> Int` | total display width (cells) |
+| `normalizeCellText` | `(text: Str) -> Str` | empty -> space, strip control chars, TAB -> 4 spaces |
+| `truncateWidth` | `(text: Str, width: Int) -> Str` | right-edge truncation, wide-char aware |
+| `padWidth` | `(text: Str, width: Int) -> Str` | right-pad with spaces |
 
 ### Pure-Taida facades (call as `Name(...)`)
 
@@ -214,27 +212,27 @@ stdout(SpinnerRender(sp2))
 
 | Symbol | Returns |
 |--------|---------|
-| `ClearScreen` | `"\x1b[2J\x1b[H"` |
-| `ClearLine` | `"\x1b[2K\r"` |
-| `AltScreenEnter` | `"\x1b[?1049h"` |
-| `AltScreenLeave` | `"\x1b[?1049l"` |
-| `CursorMoveTo` | `(col, row) -> "\x1b[{row};{col}H"` (1-based; throws `CursorMoveInvalidPosition` on `< 1`) |
-| `CursorHide` | `"\x1b[?25l"` |
-| `CursorShow` | `"\x1b[?25h"` |
-| `MouseTrackingEnter` | SGR 1006 + button + motion enable |
-| `MouseTrackingLeave` | SGR 1006 + button + motion disable |
+| `clearScreen` | `"\x1b[2J\x1b[H"` |
+| `clearLine` | `"\x1b[2K\r"` |
+| `altScreenEnter` | `"\x1b[?1049h"` |
+| `altScreenLeave` | `"\x1b[?1049l"` |
+| `cursorMoveTo` | `(col, row) -> "\x1b[{row};{col}H"` (1-based; throws `CursorMoveInvalidPosition` on `< 1`) |
+| `cursorHide` | `"\x1b[?25l"` |
+| `cursorShow` | `"\x1b[?25h"` |
+| `mouseTrackingEnter` | SGR 1006 + button + motion enable |
+| `mouseTrackingLeave` | SGR 1006 + button + motion disable |
 
 #### Styling
 
 | Symbol | Description |
 |--------|-------------|
 | `Color` | 16-color palette pack (`Color.red`, `Color.bright_white`, …) |
-| `Stylize` | `(text, @(fg, bg, bold, dim, underline, italic)) -> Str` |
+| `stylize` | `(text, @(fg, bg, bold, dim, underline, italic)) -> Str` |
 | `Color256` | `@(index: Int)` — 0–255 |
-| `Stylize256` | 256-color variant |
+| `stylize256` | 256-color variant |
 | `ColorRgb` | `@(r, g, b: Int)` — each 0–255 |
-| `StylizeRgb` | truecolor variant |
-| `ResetStyle` | `"\x1b[0m"` |
+| `stylizeRgb` | truecolor variant |
+| `resetStyle` | `"\x1b[0m"` |
 
 Style packs require all six fields (`fg`, `bg`, `bold`, `dim`,
 `underline`, `italic`). Use `""` for unset color and `false` for unset
@@ -244,10 +242,10 @@ attributes.
 
 | Symbol | Description |
 |--------|-------------|
-| `WidthMode` | enum pack — `Narrow` = 0, `Wide` = 1, `Zero` = 2, `Ambiguous` = 3 |
+| `WidthMode` | enum pack — `narrow` = 0, `wide` = 1, `zero` = 2, `ambiguous` = 3 |
 
-(The five width helpers — `MeasureGrapheme`, `DisplayWidth`,
-`NormalizeCellText`, `TruncateWidth`, `PadWidth` — are dispatched to
+(The five width helpers — `measureGrapheme`, `displayWidth`,
+`normalizeCellText`, `truncateWidth`, `padWidth` — are dispatched to
 native and listed above.)
 
 #### Virtual buffer + renderer
@@ -257,49 +255,49 @@ native and listed above.)
 | `Cell` | `@(text, fg, bg, bold, dim, underline, italic)` |
 | `CellStyle` | `@(fg, bg, bold, dim, underline, italic)` — helper pack for style args |
 | `ScreenBuffer` | `@(cols, rows, cells, cursor_col, cursor_row, cursor_visible)` |
-| `DiffOpKind` | enum pack — `MoveTo`, `Write`, `ClearLine`, `ShowCursor`, `HideCursor` |
+| `DiffOpKind` | enum pack — `move_to`, `write`, `clear_line`, `show_cursor`, `hide_cursor` |
 | `DiffOp` | `@(kind, col, row, text, style)` |
-| `BufferClear` | `(buf, fill?) -> ScreenBuffer` |
-| `BufferPut` | `(buf, col, row, cell) -> ScreenBuffer` |
-| `BufferWrite` | `(buf, col, row, text, style?) -> ScreenBuffer` — width-aware, right-edge truncation |
-| `BufferFillRect` | `(buf, col, row, width, height, cell) -> ScreenBuffer` |
-| `BufferBlit` | `(main, sub, col, row) -> ScreenBuffer` — composite `sub` at `(col, row)`, clips overflow, drops half wide-chars at right edge |
-| `RenderFull` | `(buf) -> Str` — full redraw |
-| `BufferDiff` | `(prev, next) -> @(ops, requires_full)` |
-| `RenderOps` | `(ops) -> Str` — diff ops to ANSI string |
-| `RenderFrame` | `(prev, next) -> @(text, next)` — minimal diff or full fallback |
+| `bufferClear` | `(buf, fill?) -> ScreenBuffer` |
+| `bufferPut` | `(buf, col, row, cell) -> ScreenBuffer` |
+| `bufferWrite` | `(buf, col, row, text, style?) -> ScreenBuffer` — width-aware, right-edge truncation |
+| `bufferFillRect` | `(buf, col, row, width, height, cell) -> ScreenBuffer` |
+| `bufferBlit` | `(main, sub, col, row) -> ScreenBuffer` — composite `sub` at `(col, row)`, clips overflow, drops half wide-chars at right edge |
+| `renderFull` | `(buf) -> Str` — full redraw |
+| `bufferDiff` | `(prev, next) -> @(ops, requires_full)` |
+| `renderOps` | `(ops) -> Str` — diff ops to ANSI string |
+| `renderFrame` | `(prev, next) -> @(text, next)` — minimal diff or full fallback |
 
 #### Line editor (pure state machine)
 
 | Symbol | Description |
 |--------|-------------|
-| `PromptMode` | enum pack — `Normal`, `Password` |
+| `PromptMode` | enum pack — `normal`, `password` |
 | `PromptOptions` | `@(prompt, initial, placeholder, mode, history, completion)` |
 | `CompletionState` | `@(items, selected, visible)` |
-| `LineEditorAction` | enum pack — `Editing`, `Submitted`, `Cancelled` |
+| `LineEditorAction` | enum pack — `editing`, `submitted`, `cancelled` |
 | `LineEditorState` | full editor state pack |
-| `LineEditorNew` | `(opts) -> LineEditorState` |
-| `LineEditorStep` | `(state, event) -> LineEditorState` — pure transition |
-| `LineEditorRender` | `(state) -> @(text, cursor_col)` |
+| `lineEditorNew` | `(opts) -> LineEditorState` |
+| `lineEditorStep` | `(state, event) -> LineEditorState` — pure transition |
+| `lineEditorRender` | `(state) -> @(text, cursor_col)` |
 
 #### UX widgets
 
 | Symbol | Description |
 |--------|-------------|
 | `SpinnerState` | `@(frame, label, done)` |
-| `SpinnerNext` | `(state) -> SpinnerState` |
-| `SpinnerRender` | `(state) -> Str` |
+| `spinnerNext` | `(state) -> SpinnerState` |
+| `spinnerRender` | `(state) -> Str` |
 | `ProgressOptions` | `@(width, complete_char, incomplete_char, left_label, right_label)` |
-| `ProgressBar` | `(current, total, opts?) -> Str` |
-| `StatusLine` | `(left, right?, width?) -> Str` |
+| `progressBar` | `(current, total, opts?) -> Str` |
+| `statusLine` | `(left, right?, width?) -> Str` |
 
 #### Enums (value packs)
 
 | Symbol | Description |
 |--------|-------------|
-| `KeyKind` | 28 variants — `Char`, `Enter`, `Escape`, `Tab`, `Backspace`, `Delete`, `ArrowUp/Down/Left/Right`, `Home`, `End`, `PageUp/Down`, `Insert`, `F1`–`F12`, `Unknown` |
-| `EventKind` | `Key`, `Mouse`, `Resize`, `Unknown` |
-| `MouseKind` | `Down`, `Up`, `Move`, `Drag`, `ScrollUp`, `ScrollDown` |
+| `KeyKind` | 28 variants — `char`, `enter`, `escape`, `tab`, `backspace`, `delete`, `arrow_up/down/left/right`, `home`, `end`, `page_up/down`, `insert`, `f1`-`f12`, `unknown` |
+| `EventKind` | `key`, `mouse`, `resize`, `unknown` |
+| `MouseKind` | `down`, `up`, `move`, `drag`, `scroll_up`, `scroll_down` |
 
 ## Error variants
 
@@ -333,7 +331,7 @@ cargo build
 ### Test
 
 ```bash
-cargo test                 # Rust unit + integration (486 tests as of @a.7)
+cargo test                 # Rust unit + integration tests
 ./scripts/smoke-test.sh    # Taida facade smoke test
 ```
 

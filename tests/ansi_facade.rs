@@ -143,7 +143,7 @@ fn stylize_combined_fg_bg_bold_underline() {
 
 #[test]
 fn stylize_empty_opts_returns_text_as_is() {
-    // Stylize[]("hello", @()) → "hello" (no wrapping)
+    // Empty style options leave text unwrapped.
     assert_eq!(stylize("hello", ""), "hello");
 }
 
@@ -279,7 +279,7 @@ fn stylize256_fg_bold_underline() {
 
 #[test]
 fn stylize256_no_color_returns_text_as_is() {
-    // Stylize256[]("hello", @()) → "hello"
+    // Empty 256-color style options leave text unwrapped.
     assert_eq!(stylize256("hello", ""), "hello");
 }
 
@@ -354,7 +354,7 @@ fn stylize_rgb_fg_bold_italic() {
 
 #[test]
 fn stylize_rgb_no_color_returns_text_as_is() {
-    // StylizeRgb[]("hello", @()) → "hello"
+    // Empty RGB style options leave text unwrapped.
     assert_eq!(stylize256("hello", ""), "hello");
 }
 

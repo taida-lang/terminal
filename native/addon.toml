@@ -11,7 +11,7 @@ rawModeEnter = 0
 rawModeLeave = 0
 readEvent = 0
 write = 1
-# Phase 8 / TMB-020 — renderer native migration (append-only)
+# Renderer native entries (append-only)
 bufferPut = 4
 bufferWrite = 5
 bufferFillRect = 6
@@ -20,12 +20,12 @@ bufferDiff = 2
 renderFull = 1
 renderFrame = 2
 renderOps = 1
-# Phase 9 / TMB-022 — sub-buffer blit (append-only)
+# Sub-buffer blit (append-only)
 bufferBlit = 4
-# Phase 10 / TMB-024 — buffer allocation (append-only)
+# Buffer allocation (append-only)
 bufferNew = 2
 bufferResize = 4
-# Phase 10 / TMB-025 — Unicode width (append-only)
+# Unicode width helpers (append-only)
 measureGrapheme = 1
 displayWidth = 1
 normalizeCellText = 1

@@ -3,386 +3,68 @@
 All notable changes to `taida-lang/terminal` are documented in this file.
 
 Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
-`Cargo.toml` version is intentionally held at `1.0.0` — the authoritative
+`Cargo.toml` version is intentionally held at `1.0.0`; the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
-## [@a.7] — 2026-04-24 (Phase 10 / TMB-024 / TMB-025 / TMB-026)
+## [@f.8] -- 2026-05-21
 
-### Fixed
-- **Buffer allocation + width computation + string concat ループを native に移管
-  して残存 O(N²) hot path 3 件を解消** (TMB-024 / TMB-025 / TMB-026 / Phase 10).
-  `@a.6` で renderer core の cell mutation (`BufferPut` / `BufferWrite` /
-  `BufferBlit` ...) は O(1)/cell まで落ちたが、以下 3 件の pure-Taida 実装が
-  依然 O(N²) で、Hachikuma の `appLoop` が毎 frame × 2 回ここを踏むため
-  描画 1 回あたり数秒のレイテンシが残っていた:
-  - **TMB-024**: `renderer.td::_makeCellsLoop` が `Append[acc, fill]()` を
-    N 回呼んで cells 配列を構築していた。120×40 = 4800 cells で
-    `BufferNew` 1 回に **3335 ms** を計測 (`hachikuma/docs/smoke/_perf_isolate.td`、
-    `BufferResize` も同ループで同等のコスト)。
-  - **TMB-025**: `width.td::DisplayWidth` / `NormalizeCellText` /
-    `TruncateWidth` / `PadWidth` / `MeasureGrapheme` が
-    `CharAt[src, idx]()` + `acc + ch` ループで **二重 O(N²)**
-    (文字列 slice も concat も O(N))。1600 文字入力で DisplayWidth
-    単体 **79 ms**、tui_screen の 22 call site で frame あたり
-    数百 ms を食っていた。
-  - **TMB-026**: `widgets.td::_repeatLoop` / `prompt.td::_maskLoop` /
-    `width.td::_padLoop` の string concat ループが O(N²)
-    (ProgressBar / StatusLine / Password マスク / PadWidth fallback)。
-  Phase 10 で以下を Rust native (`src/renderer/alloc.rs` / `src/width.rs`)
-  へ移管:
-  - `BufferNew` / `BufferResize` —
-    `vec![Cell::default_space(); cols*rows]` で一括確保 + 既存 cells からの
-    line-wise コピー (resize)。`compute_row_hashes` を populate するので
-    TMB-021 fast-path もそのまま機能。
-  - `DisplayWidth` / `MeasureGrapheme` / `NormalizeCellText` /
-    `TruncateWidth` / `PadWidth` — `chars()` 1 パス + width table (Phase 4
-    policy と `width_table_matches_renderer_ops` で同期) + 必要に応じた
-    `String::with_capacity` + 単一の append loop で全て O(N)。
-  - `_repeatLoop` / `_maskLoop` / `_padLoop` は `Repeat[ch, n]()` mold に
-    置換 (interpreter の `Repeat` は `src/interpreter/mold_eval.rs:504` で
-    `s.repeat(n)` → O(N) primitive を確認済み)。
-  pure-Taida facade (`taida/renderer.td`) は型 pack (`Cell` / `CellStyle` /
-  `ScreenBuffer` / `DiffOpKind` / `DiffOp`) のみに縮小 (7 → 5 export)。
-  `taida/width.td` は sub-import 経由 (`widgets.td` / `prompt.td`) の
-  fallback 用に pure-Taida 実装を保持 (Taida は imported symbol の
-  再束縛を禁止するため) し、`_padLoop` を `Repeat[" ", n]()` に置換して
-  O(N²) だけは解消。`taida/terminal.td` は `>>>` import を `WidthMode`
-  のみに絞り、native dispatch alias 7 件で 5 width 関数 + 2 alloc 関数を
-  native にルーティング。
+### Changed
+
+- The public Taida facade now exports addon-backed functions directly as
+  camelCase function bindings such as `terminalSize`, `readEvent`,
+  `bufferWrite`, and `padWidth`. The old PascalCase mold-style function aliases
+  are removed.
+- Enum-like value packs now expose snake_case variants while keeping the same
+  integer tag values. Examples: `KeyKind.enter`, `EventKind.resize`,
+  `MouseKind.scroll_down`, `WidthMode.wide`, and `DiffOpKind.move_to`.
+- `rawModeEnter()` and `rawModeLeave()` now return a meaningful status pack
+  instead of an empty pack: `@(active: Bool)`.
+- `PromptOptions.completion` now defaults to `CompletionState`, a concrete
+  `@(items, selected, visible)` pack, instead of an empty placeholder pack.
+- `packages.tdm` now points at `<<<@f.8 taida-lang/terminal`.
 
 ### Added
-- **Function table を 16 → 23 entries に拡張** (append-only, ABI v1 lock 維持):
-  - TMB-024: `bufferNew` (arity 2, position 16), `bufferResize`
-    (arity 4, position 17).
-  - TMB-025: `measureGrapheme` (arity 2, position 18), `displayWidth`
-    (arity 1, position 19), `normalizeCellText` (arity 1, position 20),
-    `truncateWidth` (arity 2, position 21), `padWidth` (arity 2,
-    position 22).
-  - 既存 16 entries の位置・arity は不変。
-  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
-- **Width error band 6101..=6103** — `WidthInvalidArg` (6101),
-  `WidthBuildValue` (6102), `WidthPanic` (6103)。既存の Renderer band
-  (6001..=6005) と非衝突。`error_name_convention_lock` の期待 symbol は
-  32 → 35 に拡張。
-- **`src/renderer/alloc.rs`** — `buffer_new` / `buffer_resize` pure helper と
-  FFI `*_impl` entry。`vec!` 一括確保 + `compute_row_hashes` populate。
-- **`src/width.rs`** — 5 pure helper (`display_width` / `measure_grapheme` /
-  `normalize_cell_text` / `truncate_width` / `pad_width`) と対応 FFI
-  `*_impl` entry。`char_width` 表は `src/renderer/ops.rs` の private 表と
-  `width_table_matches_renderer_ops` regression test で一致を検証
-  (片側だけ更新すると CI fail)。
-- **benches/renderer_perf.rs に 3 ベンチ追加** (TMB-024 / TMB-025 budget):
-  | bench | budget | measured (local) |
-  |-------|--------|------------------|
-  | `buffer_new_120x40` | < 500 µs | ~150 µs |
-  | `display_width_n1600` | < 50 µs | ~3 µs |
-  | `pad_width_n1600` | < 50 µs | ~0.4 µs |
 
-  pure-Taida 比:
-  - `BufferNew 120×40`: 3335 ms → ~150 µs (~22,000× 改善)
-  - `DisplayWidth N=1600`: 79 ms → ~3 µs (~25,000× 改善)
-  - `PadWidth` (22 文字 → 1600 col): O(N²) concat → O(N) 1 pass (pure-Taida
-    では測定不能な規模で timeout していた)
-- **`scripts/check-bench-budget.sh`** の BUDGETS 配列に 3 エントリ追加
-  (7 → 10)、hard gate の対象を拡張。
-- **`benches/baseline.json`** を TMB-024 / TMB-025 / TMB-026 後に再キャプチャ
-  (3 benches 追加、既存 7 benches は ±1% 範囲で据え置き)。
-
-### Internal
-- **47 unit tests 追加** (`cargo test` 439 → **486 PASS**):
-  - `src/renderer/alloc.rs`: 13 テスト (default cell / 4800 cells /
-    row_hashes populate / resize bigger & smaller / cursor clamp / arity /
-    invalid state / linear scale guard)。
-  - `src/width.rs`: 34 テスト (5 関数 × 各種境界 — ASCII / 全角 /
-    combining / control char / CJK truncate / empty input / overflow、
-    `width_table_matches_renderer_ops` で ops.rs の private 表と sync
-    検証、2 本の linear scale guard で O(N) を pin)。
-- `renderer_bench_api` に `buffer_new` / `buffer_resize` / `display_width` /
-  `pad_width` を追加 (`#[doc(hidden)] __bench` 経由)。
-- 既存の function count 検証 (`descriptor_advertises_*_functions`、
-  `tests/ansi_facade.rs`、`tests/event_non_tty.rs`、
-  `tests/read_key_non_tty.rs`) を 16 → 23 に更新、
-  `error_name_convention_lock` の expected 32 → 35 に拡張、
-  `error_code_ranges_are_frozen_unix` に Width 3 エントリ追加。
-
-### Known issues
-- **TMB-027 (LineEditor cumulative O(N²))** は未解消のまま残存。
-  `prompt.td::_insertAt` / `_deleteAtDo` / `_cursorWidthCalc` は毎キー
-  入力で `Slice[s, 0, pos]() + ch + Slice[...]()` の 2 回 O(len) slice +
-  1 回 O(len) concat + `DisplayWidth` 呼び出しを行い、入力長 N の
-  shell line / multiline prompt で累積 O(N²) のレイテンシが発生する。
-  lang core の String が immutable (rope / gap buffer を持たない) こと
-  が根因のため、terminal addon 単独では解消不可 — C26 / D27 の lang core
-  work に依存する。`@a.7` は TMB-024 / 025 / 026 の ~22,000× 改善で
-  Hachikuma `appLoop` の hot path 問題は解消しているため、TMB-027 は
-  known issue としてリリース。
-
-## [@a.6] — 2026-04-23 (Phase 9 / TMB-022)
+- Added explicit `RustAddon[...]` facade bindings for every native entry so
+  Taida-side parsing, linting, graph extraction, runtime dispatch, and API
+  extraction all observe the same public surface.
+- Added source `///@` documentation comments to the checked-in `taida/*.td`
+  facade sources so generated API docs carry parameter names, return shapes,
+  errors, examples, and AI context from the facade itself.
 
 ### Fixed
-- **`BufferBlit` native primitive を追加して下流の O(N²) pane 合成を解消** (TMB-022 / Phase 9).
-  `@a.5` で renderer core の per-cell 操作は O(1) 化された (TMB-020) が、sub
-  ScreenBuffer を main の指定位置に合成する「blit」操作は addon に無く、
-  Hachikuma の `src/tui/layout/compose.td::composePane` は pure-Taida で
-  sub のセルを走査せざるを得なかった。Taida の list index `xs.get(idx)`
-  は O(n) のため、4800 cells の composePane 全体が O(N²) に崩れ、120×40
-  で 1 frame = 48075 ms を計測 (`hachikuma/docs/smoke/perf_real_smoke.td`)。
-  R-2 (50 ms) を 961× 超過、ユーザ入力ごとに数十秒 freeze。Phase 9 で:
-  - `BufferBlit[](main, sub, col, row) -> ScreenBuffer` を Rust native 実装。
-    `main.cells` / `sub.cells` を `Vec<Cell>` の直接スライスコピーで O(N)
-    に抑える (1 cell あたり `Cell::clone()` のみ、per-cell allocation ゼロ)。
-  - main からはみ出した sub のセルは silently clip (`BufferFillRect` と
-    同等のクランプ規約)。
-  - wide char placeholder cell (`text=" "` の 2 セル目) は sub からそのまま
-    運ばれる — blit は cell レベルのコピーであり、幅を解釈し直さない。
-  - style attributes (`fg` / `bg` / `bold` / `dim` / `underline` / `italic`)
-    はセル毎に保持される。
-  - `(col, row)` が main の範囲外 (右/下) を指す場合は no-op (main をそのまま
-    返す)。`col < 1` / `row < 1` は `RendererOutOfBounds`。
 
-### Added
-- **Function table を 15 → 16 entries に拡張** (append-only, ABI v1 lock 維持):
-  - `bufferBlit` (arity 4, position 15) を append。既存 15 entries の
-    位置・arity は不変。
-  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
-- **`src/renderer/blit.rs`** — `buffer_blit_impl` FFI entry と内部の `blit_into`
-  mutating helper (Vec<Cell> の行毎スライスコピー)。`#[doc(hidden)]`
-  `__bench` re-export で criterion bench が内部関数を直接叩ける。
-- **`taida/terminal.td`** に `BufferBlit <= bufferBlit` dispatch alias、
-  `<<<` export に `BufferBlit` を追加。
-- **benches/renderer_perf.rs に 2 ベンチ追加** (TMB-022 budget 200 µs):
-  | bench | budget | measured |
-  |-------|--------|----------|
-  | `buffer_blit_identity 120×40` | < 200 µs | ~78 µs |
-  | `buffer_blit_partial 120×40 → 240×80` | < 200 µs | ~81 µs |
+- `readEvent()` pending byte storage is now per OS thread. Concurrent callers no
+  longer share surplus bytes from partially decoded escape sequences.
+- The Taida facade syntax has been updated to the current chain operators
+  (`>=>` / `<=<`) so current Taida can parse, lint, and document the package.
 
-  pure-Taida 比 (120×40 composePane 48075 ms → 78 µs) で ~616,000× 改善、
-  Hachikuma R-2 (50 ms 目標) を 640× 下回る。
-- **`scripts/check-bench-budget.sh`** の BUDGETS 配列に 2 エントリ追加
-  (5 → 7)、hard gate の対象を拡張。
-- **`examples/smoke_test.td`** に `BufferBlit` 7 種の assertion 追加
-  (identity / partial / out-of-bounds clip / style preserve / start past
-  right-edge no-op / wide-char right-edge drop / wide-char in-bounds
-  preserve)、`tests/renderer_smoke.rs` の `must_contain` に対応 marker
-  15 本を追記。Wide-char boundary smoke は HOLD review acceptance
-  (`.dev/TM_BLOCKERS.md` TMB-022) で要求。
-- **`benches/baseline.json`** を TMB-022 後に再キャプチャ (2 benches 追加、
-  既存 5 benches は ±1% 範囲で据え置き)。
+### Compatibility
 
-### Internal
-- **13 unit tests in `blit.rs`** — identity / partial / right-edge clip /
-  bottom-edge clip / past-right no-op / past-bottom no-op / style preserve /
-  wide char placeholder preserve / zero-size sub no-op / 120×40 overlay,
-  plus HOLD-review additions: wide-char lead drop at right edge when
-  placeholder spills / wide-char kept when fully in-bounds / drop does
-  not affect interior wide chars.
-- **Right-edge wide-char drop in `blit_into`** — mirrors `BufferWrite`
-  (`ops.rs::write_text` line ~138). When per-row clipping reduces the
-  copy to a width that ends on a wide-char lead, the lead is skipped
-  too so `ScreenBuffer`'s wide-char pairing invariant stays intact for
-  downstream `BufferDiff` / `RenderFull`. `ops::char_width` promoted to
-  `pub(crate)` and new `ops::cell_is_wide_lead` helper.
-- `renderer_bench_api` に `blit_into` を追加。
-- 既存のテーブルサイズアサーション (`descriptor_advertises_*_functions`、
-  `tests/ansi_facade.rs`、`tests/event_non_tty.rs`、`tests/read_key_non_tty.rs`)
-  を 15 → 16 に更新。
+- The native addon ABI remains ABI v1: `abi = 1`,
+  `entry = "taida_addon_get_v1"`.
+- The 23 native function table entries keep their existing names, order, and
+  arities.
+- Existing Rust FFI entry points and integer enum tag values are unchanged.
+- The release is source-breaking for Taida callers that still import the old
+  PascalCase aliases or old PascalCase enum variants.
 
-## [@a.5] — 2026-04-23 (Phase 8 / TMB-020)
+### Migration
 
-### Fixed
-- **Renderer core を Rust native に移管して O(N²) を解消** (TMB-020 / Phase 8).
-  `@a.4` の pure-Taida 実装は `BufferPut` 1 cell が `Take`/`Drop`/`Append`/`Concat`
-  4 連続 (各 O(N)) → 全体 O(N²) で、120×40 = 4800 cells で 1 frame の
-  描画に数秒要した (Hachikuma P-12-2 smoke で `composePane` 40×20 = 6081 ms /
-  R-2 目標 < 50 ms の 121× 超過)。Phase 8 で以下を Rust native (`src/renderer/`)
-  へ移管:
-  - `BufferPut` / `BufferWrite` / `BufferFillRect` / `BufferClear` —
-    内部表現 `Vec<Cell>` を **直接 mutate** (clone-once + in-place write)
-    することで cell 毎 O(1)。
-  - `BufferDiff` — `Vec<Cell>` を線形走査して `DiffOp` リストを生成 O(N)。
-  - `RenderFull` — `String::with_capacity` で pre-allocate し、ANSI literal
-    を直接 push、行毎に `CursorMoveTo` を emit。
-  - `RenderOps` / `RenderFrame` — DiffOp → ANSI を Rust で展開。
-  Pure-Taida facade (`taida/renderer.td`) は型定義 (`Cell` / `CellStyle` /
-  `ScreenBuffer` / `DiffOpKind` / `DiffOp`) と `BufferNew` / `BufferResize`
-  のみ残し、native dispatch alias (`BufferPut <= bufferPut` 他 8 entries) は
-  `taida/terminal.td` に集約。
+1. Change `packages.tdm` to `<<<@f.8 taida-lang/terminal`.
+2. Replace PascalCase function calls with camelCase calls, for example
+   `BufferWrite[buf, 1, 1, "ABC", style]()` becomes
+   `bufferWrite(buf, 1, 1, "ABC", style)`.
+3. Replace enum variants with snake_case variants, for example
+   `KeyKind.Enter` becomes `KeyKind.enter`.
+4. Replace empty completion placeholders with `CompletionState`.
+5. Use the returned raw-mode status pack if you need to observe raw-mode
+   transitions: `rawModeEnter().active == true`,
+   `rawModeLeave().active == false`.
 
-### Added
-- **Function table を 7 → 15 entries に拡張** (append-only, ABI v1 lock 維持):
-  - `bufferPut` (arity 4), `bufferWrite` (5), `bufferFillRect` (6),
-    `bufferClear` (2), `bufferDiff` (2), `renderFull` (1),
-    `renderFrame` (2), `renderOps` (1).
-  - `native/addon.toml` の `[functions]` セクションも append-only で同期。
-- **Renderer error band 6xxx** — `RendererInvalidArg` (6001),
-  `RendererOutOfBounds` (6002), `RendererInvalidSize` (6003),
-  `RendererBuildValue` (6004), `RendererPanic` (6005). 既存 1xxx-5xxx と
-  非衝突で deterministic error を返す。
-- **`benches/renderer_perf.rs`** — criterion による 7 ベンチ (TMB-021 解消後 5/5 budget 達成):
-  | bench | budget | measured |
-  |-------|--------|----------|
-  | `buffer_write_120chars 120×40` | < 500 µs | 2.7 µs |
-  | `compose_pane_40rows 120×40` | < 5 ms | 104 µs |
-  | `render_full 120×40` | < 5 ms | 16 µs |
-  | `render_frame_identical 120×40` | < 100 µs | **34 ns** |
-  | `render_frame_one_cell_diff 120×40` | < 2 ms | 20.6 µs |
+## Prior Releases
 
-  pure-Taida 比 (composePane 40×20 = 6081 ms → 104 µs) で 58000× 改善、
-  Hachikuma R-2 (50 ms 目標) は十分にクリア。`render_frame_identical` は
-  TMB-021 (row-hash fast-path) で 808 µs → 34 ns へ 23000× 改善し全 5 ベンチが
-  budget 内に収まった。
-
-- **CI bench regression gate** (TM-8g): `.github/workflows/bench.yml` を新設。
-  `cargo bench --bench renderer_perf -- --noplot` を実行し、5 budgeted bench の
-  median を `scripts/check-bench-budget.sh` で絶対 budget と照合 (超過で fail)。
-  並行して `scripts/compare-bench-baseline.sh` が `benches/baseline.json`
-  (committed) との差分を markdown table で job summary に出力 (情報レポート、
-  fail させない)。`--save-baseline` artifact を介した cross-run 比較は fork PR の
-  secrets 制約と 90 日 retention 切れを避けるため採用せず、committed baseline
-  方式 (PR diff として再ベースライン操作がレビュー可能) を選択。CI runner の
-  noise (±15%) を考慮し、絶対 budget による hard gate と相対比較 (warning > 15%、
-  improvement > 5%) を分離している。
-
-### Internal
-- **`src/renderer/state.rs`** — `BufferState` (`Vec<Cell>`) + 全ての pack
-  ↔ Vec marshalling primitive。
-- **`src/renderer/ops.rs`** — `buffer_put_impl` / `buffer_write_impl` /
-  `buffer_fill_rect_impl` / `buffer_clear_impl` の addon entry と内部の
-  `write_text` / `fill_rect` / `clear_buffer` mutating helper。Phase 4
-  width policy (combining / wide / control) を Rust に複製。
-- **`src/renderer/diff.rs`** — `buffer_diff_impl` / `render_full_impl` /
-  `render_ops_impl` / `render_frame_impl` の addon entry と内部の
-  `diff_buffers` / `render_full` / `render_ops_to_string` 計算関数。
-  ANSI literal (`CursorHide`/`Show`, `ClearLine`, `ResetStyle`,
-  16色 SGR fg/bg palette) を facade と byte-stable に複製。
-- **`renderer_bench_api`** — bench 専用に内部関数を `#[doc(hidden)]` 経由で
-  re-export。FFI marshalling コストをスキップして hot path を直接測定。
-- 全 addon entry に `panic::catch_unwind` バリアを設置 (FFI 境界での
-  unwind を阻止)。
-
-### Tests
-- 367 → 411 PASS (+44 unit tests in `renderer/{state,ops,diff}`)。
-- 既存テスト (`examples/smoke_test.td` の 21 renderer assertion / 
-  `tests/renderer_smoke.rs`) は機能後退なし。
-- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` clean。
-
-## [@a.4] — 2026-04-22
-
-### Fixed
-- **Renderer core が no-op だった問題を完全実装で解消** (TMB-019 / Phase 7).
-  Phase 4 で DONE と記録されていた `BufferPut` / `BufferWrite` /
-  `BufferFillRect` / `RenderFull` / `BufferDiff` / `RenderOps` /
-  `RenderFrame` は `taida/renderer.td` 上で placeholder を返す no-op の
-  まま放置されており、renderer 基盤に乗る TUI アプリケーションは画面
-  描画されない状態だった。これらを `Take` + `Drop` + `Append` + `Concat`
-  に基づく pure Taida の list-replace で実装し直し:
-  - `BufferPut` / `BufferWrite` / `BufferFillRect`: bounds check 後に
-    実際に cell を書き換える。`BufferWrite` は `NormalizeCellText` +
-    `MeasureGrapheme` で列幅 0 / 1 / 2 を適切に扱い、wide char の placeholder
-    cell も style を保持して emit する。右端での truncate は wrap 禁止。
-  - `RenderFull`: 各行の cell を `Stylize` 経由で連結し、非 default style の
-    cell は SGR 装飾付きで出力。cursor 位置復元と visibility 復元を保証。
-  - `BufferDiff`: size mismatch 時は `requires_full=true` + 空 ops、同 size
-    時は cell 毎の `_cellEq` 比較で `Write` ops を最小 emit + cursor
-    visibility / position 変化を追加 op として append。
-  - `RenderOps`: `MoveTo` / `Write` / `ClearLine` / `ShowCursor` /
-    `HideCursor` を ANSI に展開、`Write` は style が空でなければ
-    `Stylize` でラップ。
-  - `RenderFrame`: `requires_full` で `RenderFull` に fallback、そうでなければ
-    `RenderOps` を emit。identical buffer では空 text を返す。
-- Facade module loader の forward reference 制限 (TMB-010 で発見した
-  「一段階を超える forward ref は解決できない」問題) に合わせ、mutual
-  recursion を single-function recursion + nested match に畳み込んだ
-  実装に変更。`_bwWorker` / `_frRowWorker` / `_frColWorker` / `_rfCellWorker` /
-  `_rfRowWorker` / `_diffCellsWorker` / `_roWorker` が 1 関数内で完結する。
-
-### Added
-- **`CellStyle`** default pack — BufferWrite の `style` 引数の 6 フィールド
-  shape (`fg` / `bg` / `bold` / `dim` / `underline` / `italic`) をデフォルトで
-  提供。partial pack 作成はできないため、呼び出し側は `CellStyle(fg <= "red",
-  bg <= "", bold <= false, dim <= false, underline <= false, italic <= false)`
-  のように 6 フィールド全部を明示する。`<<< terminal.td` の exports に追加。
-- `examples/smoke_test.td` に renderer セクションを追加: `BufferPut` /
-  `BufferWrite` (truncation / style 保持) / `BufferFillRect` / `RenderFull` /
-  `BufferDiff` (identical / single change / size mismatch) / `RenderOps` /
-  `RenderFrame` の戻り値を 21 項目で assert。PASS marker `PASS:renderer_ops`
-  を発行。
-- `tests/renderer_smoke.rs` (新規) — `examples/smoke_test.td` を実際の
-  `taida` CLI で実行し、`PASS:renderer_ops` + 21 項目の値を 1 test で
-  verify。Rust 側で期待文字列を再計算するだけだった既存
-  `tests/renderer_facade.rs` (82 pseudo-test) の gap を埋める。`taida`
-  binary は `TAIDA_BIN` env / 上位 monorepo `target/{debug,release}/taida` /
-  `$PATH` の順で探索し、見つからなければ loud skip。
-- `Cargo.toml` に `tempfile = "3"` を dev-dependency として追加 (renderer_smoke
-  が staged workspace を作るため)。
-
-## [@a.3] — 2026-04-21
-
-### Added
-- **`Write[](bytes: Str) -> Int`** — TUI 用の改行なし即時 write path
-  (TMB-016). `io::stdout().write_all + flush` で 1 バイトも蓄積せず端末に
-  書き出し、書き込んだバイト数 (`Int`) を返す。non-tty (pipe / redirect)
-  でも成功経路を維持し、`catch_unwind` で FFI unwind を封止する。ANSI
-  エスケープを連続送信する描画用途で使う契約。addon function table は
-  append-only で 6 → 7 entries に拡張（既存 4 entry `terminalSize` /
-  `readKey` / `isTerminal` / `readEvent` / `rawModeEnter` / `rawModeLeave`
-  の ABI 不変）。
-- 5xxx エラー帯: `WriteFailed` / `WriteBuildValue` / `WritePanic`。
-- 公開ドキュメント整備 (TMB-018): `README.md` に Write の usage / Exports
-  59 → 60 / error variants / test count 340 → 360 を反映、`docs/api.md` の
-  `terminal.td` export list と binding 節に `Write` エントリ追加
-  (signature / throws / UTF-8 byte-count contract / non-tty 成功経路 /
-  since `@a.3`)。
-
-### Fixed
-- **SIGWINCH handler install 順序 race** (TMB-017, TMB-007 follow-up) —
-  `ensure_sigwinch_pipe()` の install 順序を再構成。旧 `sigaction(SIGWINCH,
-  &sa, &mut old_sa)` → `Box::new(old_sa)` → `OLD_SIGWINCH.store(...)` の順
-  では、ステップ 1 直後〜3 直前の race window で SIGWINCH が到達すると
-  自前 `sigwinch_handler` が `OLD_SIGWINCH.load()` で null を得て、
-  他ライブラリの old handler へのチェーンを silently skip していた。
-  新順序: `sigaction(SIGWINCH, NULL, &mut old_sa)` で先に現 handler を
-  取得 → `OLD_SIGWINCH.store(..., Release)` → `sigaction(SIGWINCH, &sa,
-  NULL)` で新 handler を install → `SIGWINCH_INSTALLED.store(true,
-  Release)`。race window を物理的に消去しつつ TMB-007 の chain 契約
-  (SIG_DFL / SIG_IGN はスキップ) を維持。
-
-### Tests
-- `tests/sigwinch_install_order.rs`: 順序 pin + 再入冪等 + pure-probe
-  idempotence (3 tests).
-- `tests/sigwinch_external_chain.rs` (新規、strong-path 専用バイナリ):
-  external handler を先に install → addon install → 実 SIGWINCH self-
-  delivery で self-pipe byte と external counter 双方が +1 されることを
-  assertion で pin。フレッシュプロセスで実行されるため probe の副作用で
-  強い経路が短絡する問題を回避。
-- `tests/write_returns_byte_count.rs` / `write_non_tty.rs` /
-  `write_arity_mismatch.rs` および `src/write.rs` 内 unit tests。
-- `cargo test`: **366 PASS / 0 failed** (pre-release `@a.2`: 340 PASS)。
-- `cargo fmt --check` / `cargo clippy --all-targets -- -D warnings` / `cargo
-  check --target x86_64-pc-windows-msvc`: all clean。
-
-### Internal
-- `src/write.rs` 新設。`src/lib.rs` dispatcher に Write entry を append。
-- `src/event.rs` に install 順序 reorder および `__test_only_sigwinch_pure_probe()`
-  (副作用ゼロ probe) を追加。`src/lib.rs` で `__test_only::sigwinch_pure_probe()`
-  として test-only 再 export。`TERMINAL_FUNCTIONS` / 公開 ABI には影響なし。
-
-### Upgrade notes
-- 既存利用者への破壊的変更はなし。`Write` は新規 export。
-- TUI を実装する際は `stdout()` (taida-lang 本体、`\n` 暗黙付与の行指向
-  I/O) ではなく `Write()` (本 package) を使うこと。contract は
-  `docs/api.md` 参照。
-
-## [@a.2] — 2026-04-16
-
-- facade 5 ファイルの discard binding リネーム (TMB-015)
-- `addon.toml` の `[library.prebuild.targets]` を撤去し `addon.lock.toml`
-  fallback へ (C14B-012 経由で taida 本体が対応)
-- a.1 release asset から正しい SHA-256 を handback (TMB-014)
-- CI を C14 release.yml ワークフローへ移行
-
-## [@a.1] — 2026-04-10
-
-初回リリース。`terminalSize` / `readKey` / `isTerminal` / `readEvent` の
-4 entry と raw mode / ANSI style / unicode width / prompt / renderer /
-widgets の Taida facade を含む。
+Earlier `@a.*` releases introduced the terminal package, raw terminal I/O,
+event parsing, ANSI helpers, Unicode width helpers, virtual screen buffers, diff
+rendering, line-editor state, widgets, and renderer performance improvements.
+The public history is preserved in Git tags and release artifacts.

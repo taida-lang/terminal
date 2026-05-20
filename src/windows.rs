@@ -309,9 +309,16 @@ fn is_raw_mode_active() -> bool {
     WIN_RAW_MODE_STATE.lock().map(|s| s.active).unwrap_or(false)
 }
 
-fn build_empty_pack(builder: &HostValueBuilder<'_>) -> *mut TaidaAddonValueV1 {
-    let names: [*const c_char; 0] = [];
-    let values: [*mut TaidaAddonValueV1; 0] = [];
+fn build_raw_mode_state_pack(
+    builder: &HostValueBuilder<'_>,
+    active: bool,
+) -> *mut TaidaAddonValueV1 {
+    let active_v = builder.bool(active);
+    if active_v.is_null() {
+        return core::ptr::null_mut();
+    }
+    let names = [c"active".as_ptr() as *const c_char];
+    let values = [active_v];
     builder.pack(&names, &values)
 }
 
@@ -399,7 +406,7 @@ pub fn raw_mode_enter_impl(
     state.active = true;
     state.saved_mode = current_mode;
 
-    let value = build_empty_pack(&builder);
+    let value = build_raw_mode_state_pack(&builder, true);
     if !value.is_null() && !out_value.is_null() {
         unsafe { *out_value = value };
     }
@@ -474,7 +481,7 @@ pub fn raw_mode_leave_impl(
     state.active = false;
     state.saved_mode = 0;
 
-    let value = build_empty_pack(&builder);
+    let value = build_raw_mode_state_pack(&builder, false);
     if !value.is_null() && !out_value.is_null() {
         unsafe { *out_value = value };
     }

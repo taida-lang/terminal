@@ -188,12 +188,19 @@ pub fn leave_raw_mode() -> LeaveOutcome {
     }
 }
 
-// ── Host-side empty pack builder ────────────────────────────────
+// ── Host-side raw mode state pack builder ───────────────────────
 
-/// Build the return pack `@()` (empty pack) on the host allocator.
-fn build_empty_pack(builder: &HostValueBuilder<'_>) -> *mut TaidaAddonValueV1 {
-    let names: [*const c_char; 0] = [];
-    let values: [*mut TaidaAddonValueV1; 0] = [];
+/// Build the return pack `@(active: Bool)` on the host allocator.
+fn build_raw_mode_state_pack(
+    builder: &HostValueBuilder<'_>,
+    active: bool,
+) -> *mut TaidaAddonValueV1 {
+    let active_v = builder.bool(active);
+    if active_v.is_null() {
+        return core::ptr::null_mut();
+    }
+    let names = [c"active".as_ptr() as *const c_char];
+    let values = [active_v];
     builder.pack(&names, &values)
 }
 
@@ -219,7 +226,7 @@ pub fn raw_mode_enter_impl(
 
     match enter_raw_mode() {
         EnterOutcome::Ok => {
-            let pack = build_empty_pack(&builder);
+            let pack = build_raw_mode_state_pack(&builder, true);
             if pack.is_null() {
                 let err = builder.error(
                     err::RAW_MODE_ENTER_FAILED,
@@ -291,7 +298,7 @@ pub fn raw_mode_leave_impl(
 
     match leave_raw_mode() {
         LeaveOutcome::Ok => {
-            let pack = build_empty_pack(&builder);
+            let pack = build_raw_mode_state_pack(&builder, false);
             if pack.is_null() {
                 let err = builder.error(
                     err::RAW_MODE_LEAVE_FAILED,

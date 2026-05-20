@@ -1,12 +1,12 @@
 name: Bench
 
-# TM-8g: Detect renderer performance regressions.
+# Detect renderer performance regressions.
 #
 # This workflow has two layers:
 #
 #   1. **Hard gate (absolute budgets).** `scripts/check-bench-budget.sh`
 #      compares each budgeted bench median against the production
-#      acceptance budgets that drove TMB-020. Fail-close — if any bench
+#      accepted renderer performance budgets. Fail-close — if any bench
 #      blows its budget the job fails and the PR is blocked.
 #
 #   2. **Soft compare (committed baseline).**
