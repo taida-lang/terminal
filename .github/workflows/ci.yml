@@ -123,3 +123,5 @@ jobs:
           taida --version
       - name: Run facade smoke test
         run: ./scripts/smoke-test.sh
+      - name: Verify docs/api.md is up to date
+        run: ./scripts/check-docs-drift.sh

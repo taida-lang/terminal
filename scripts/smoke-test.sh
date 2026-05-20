@@ -34,12 +34,13 @@ case "$(uname -s)" in
   *) LIB_NAME="libtaida_lang_terminal.so" ;;
 esac
 
-# Find the cdylib — check native/ first (local dev), then target/ (CI build).
+# Find the cdylib. Prefer the current Cargo build output so local ignored
+# artifacts under native/ cannot mask code changes.
 LIB_PATH=""
 for candidate in \
-  "$PACKAGE_DIR/native/$LIB_NAME" \
   "$PACKAGE_DIR/target/debug/$LIB_NAME" \
-  "$PACKAGE_DIR/target/release/$LIB_NAME"; do
+  "$PACKAGE_DIR/target/release/$LIB_NAME" \
+  "$PACKAGE_DIR/native/$LIB_NAME"; do
   if [ -f "$candidate" ]; then
     LIB_PATH="$candidate"
     break

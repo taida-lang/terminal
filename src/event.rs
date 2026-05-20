@@ -42,6 +42,7 @@
 //! When ESC-prefixed input is read, exactly one escape sequence is
 //! consumed and any surplus bytes are pushed back to the pending queue.
 
+use core::cell::RefCell;
 use core::ffi::c_char;
 use core::panic::AssertUnwindSafe;
 use std::collections::VecDeque;
@@ -447,12 +448,27 @@ pub fn decode_sgr_mouse(buf: &[u8]) -> Option<DecodedMouse> {
 
 const MAX_EVENT_BYTES: usize = 64;
 
-/// Process-global pending byte queue (TMB-009).
-///
-/// When `read_stdin_event` reads more bytes than a single event
-/// consumes, the surplus is pushed here and drained on the next call.
-/// This ensures 1 call = 1 event framing.
-static PENDING_BYTES: Mutex<VecDeque<u8>> = Mutex::new(VecDeque::new());
+// Thread-local pending byte queue.
+//
+// When `read_stdin_event` reads more bytes than a single event
+// consumes, the surplus is pushed here and drained on the next call,
+// ensuring 1 call = 1 event framing.
+//
+// Scope is per OS thread: `readEvent()` must be called from a single
+// OS thread for any given stdin stream.
+// Cross-thread concurrent `readEvent()` calls get independent pending
+// buffers and will not steal bytes from each other's partially-decoded
+// escape sequences. The old `Mutex<VecDeque<u8>>` singleton serialised
+// callers but left the framing contract under-defined across threads;
+// the thread-local queue closes that gap without changing the public
+// signature of `readEvent()`.
+//
+// When Taida embeds this addon under a multi-thread async runtime
+// (e.g. tokio), the `readEvent()` call must run on a dedicated
+// blocking thread (e.g. via `spawn_blocking`).
+thread_local! {
+    static PENDING_BYTES: RefCell<VecDeque<u8>> = const { RefCell::new(VecDeque::new()) };
+}
 
 /// Read outcome from the event I/O layer.
 enum EventReadOutcome {
@@ -545,18 +561,14 @@ fn read_stdin_event(fd: i32) -> EventReadOutcome {
     let mut len: usize = 0;
 
     // Step 1: Drain pending bytes first.
-    {
-        let mut pending = match PENDING_BYTES.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
+    PENDING_BYTES.with_borrow_mut(|pending| {
         while len < buf.len() && !pending.is_empty() {
             if let Some(b) = pending.pop_front() {
                 buf[len] = b;
                 len += 1;
             }
         }
-    }
+    });
 
     // Step 2: If no pending data, read the first byte from stdin.
     if len == 0 {
@@ -667,15 +679,13 @@ fn read_stdin_event(fd: i32) -> EventReadOutcome {
 
     // Push unconsumed bytes back to pending.
     if consumed < len {
-        let mut pending = match PENDING_BYTES.lock() {
-            Ok(g) => g,
-            Err(p) => p.into_inner(),
-        };
-        // Prepend unconsumed bytes (they should be processed before any
-        // new reads). We insert at the front of the deque.
-        for &b in data[consumed..].iter().rev() {
-            pending.push_front(b);
-        }
+        PENDING_BYTES.with_borrow_mut(|pending| {
+            // Prepend unconsumed bytes (they should be processed before any
+            // new reads). We insert at the front of the deque.
+            for &b in data[consumed..].iter().rev() {
+                pending.push_front(b);
+            }
+        });
     }
 
     EventReadOutcome::Event(event)
@@ -1731,10 +1741,73 @@ mod tests {
 
     #[test]
     fn pending_bytes_queue_is_initially_empty() {
-        let pending = PENDING_BYTES.lock().unwrap();
-        // Note: this test may interact with other tests. We just check
-        // the type is correct. In practice the queue is empty at start.
-        let _ = pending.len(); // Compiles means VecDeque<u8> is correct.
+        // Thread-local scope: each test thread has its own queue. The
+        // queue begins empty on first access; framing is guaranteed per
+        // OS thread.
+        PENDING_BYTES.with_borrow(|pending| {
+            let _ = pending.len();
+        });
+    }
+
+    #[test]
+    fn pending_bytes_queue_isolation_across_threads() {
+        // Two threads each push a distinct byte sequence into their own
+        // pending queue and verify that a subsequent drain on each
+        // thread recovers its own sequence exactly: no cross-thread byte
+        // theft.
+        use std::sync::mpsc;
+        use std::thread;
+
+        let (tx_a, rx_a) = mpsc::channel::<Vec<u8>>();
+        let (tx_b, rx_b) = mpsc::channel::<Vec<u8>>();
+
+        let seq_a: Vec<u8> = (0u8..32).collect();
+        let seq_b: Vec<u8> = (128u8..160).collect();
+
+        let seq_a_cloned = seq_a.clone();
+        let seq_b_cloned = seq_b.clone();
+
+        let h_a = thread::spawn(move || {
+            PENDING_BYTES.with_borrow_mut(|p| {
+                for &b in &seq_a_cloned {
+                    p.push_back(b);
+                }
+            });
+            // Small yield so thread b has time to push concurrently.
+            thread::yield_now();
+            let mut drained = Vec::new();
+            PENDING_BYTES.with_borrow_mut(|p| {
+                while let Some(b) = p.pop_front() {
+                    drained.push(b);
+                }
+            });
+            tx_a.send(drained).unwrap();
+        });
+
+        let h_b = thread::spawn(move || {
+            PENDING_BYTES.with_borrow_mut(|p| {
+                for &b in &seq_b_cloned {
+                    p.push_back(b);
+                }
+            });
+            thread::yield_now();
+            let mut drained = Vec::new();
+            PENDING_BYTES.with_borrow_mut(|p| {
+                while let Some(b) = p.pop_front() {
+                    drained.push(b);
+                }
+            });
+            tx_b.send(drained).unwrap();
+        });
+
+        h_a.join().unwrap();
+        h_b.join().unwrap();
+
+        let got_a = rx_a.recv().unwrap();
+        let got_b = rx_b.recv().unwrap();
+
+        assert_eq!(got_a, seq_a, "thread A must drain its own sequence");
+        assert_eq!(got_b, seq_b, "thread B must drain its own sequence");
     }
 
     // ── Helper function tests ──────────────────────────────

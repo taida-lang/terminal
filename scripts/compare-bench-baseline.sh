@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # scripts/compare-bench-baseline.sh
 #
-# TM-8g informational compare: print a markdown table comparing the
+# Informational compare: print a markdown table comparing the
 # current criterion measurement against the committed
 # benches/baseline.json. **Never fails** — this is a *report*
 # (intended for $GITHUB_STEP_SUMMARY in CI). The hard gate is the
