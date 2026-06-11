@@ -759,10 +759,7 @@ mod tests {
         let style = CellStyle::empty();
         write_text(&mut buf, 1, 1, "漢", &style); // lead@1, placeholder@2
         write_text(&mut buf, 2, 1, "X", &style); // lands on the placeholder
-        assert_eq!(
-            buf.cells[0].text, " ",
-            "orphaned wide lead must be blanked"
-        );
+        assert_eq!(buf.cells[0].text, " ", "orphaned wide lead must be blanked");
         assert_eq!(buf.cells[1].text, "X");
     }
 
@@ -776,10 +773,7 @@ mod tests {
             style: CellStyle::empty(),
         };
         put_cell(&mut buf, 2, 1, x).unwrap();
-        assert_eq!(
-            buf.cells[0].text, " ",
-            "orphaned wide lead must be blanked"
-        );
+        assert_eq!(buf.cells[0].text, " ", "orphaned wide lead must be blanked");
         assert_eq!(buf.cells[1].text, "X");
     }
 
