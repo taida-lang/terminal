@@ -315,12 +315,12 @@ mod tests {
 
     #[test]
     fn check_cell_limit_rejects_pathological_dimensions() {
-        // Exactly at the limit is accepted (2000 * 2000 = 4_000_000).
-        assert!(check_cell_limit(2000, 2000).is_ok());
+        // Exactly at the limit is accepted (1000 * 500 = 500_000).
+        assert!(check_cell_limit(1000, 500).is_ok());
         assert!(check_cell_limit(state::MAX_BUFFER_CELLS as i64, 1).is_ok());
         // One row past the limit is rejected before any allocation.
         assert!(matches!(
-            check_cell_limit(2001, 2000),
+            check_cell_limit(1000, 501),
             Err(RendererError::InvalidSize(_))
         ));
         // The motivating case: bufferNew(10^6, 10^6) must never reach
@@ -329,6 +329,16 @@ mod tests {
             check_cell_limit(1_000_000, 1_000_000),
             Err(RendererError::InvalidSize(_))
         ));
+    }
+
+    #[test]
+    fn buffer_new_at_the_cell_limit_allocates() {
+        // The limit must stay reachable: a buffer of exactly
+        // MAX_BUFFER_CELLS allocates and round-trips its dimensions.
+        let buf = buffer_new(1000, 500);
+        assert_eq!(buf.cells.len(), state::MAX_BUFFER_CELLS);
+        assert_eq!(buf.cols, 1000);
+        assert_eq!(buf.rows, 500);
     }
 
     #[test]

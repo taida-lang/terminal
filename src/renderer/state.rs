@@ -478,13 +478,16 @@ pub fn parse_cell(value: &BorrowedValue<'_>) -> Result<Cell, RendererError> {
 
 /// Upper bound on `cols * rows` accepted from the FFI boundary.
 ///
-/// Real terminals top out around half a million cells (an 8K monitor
-/// of 6-pixel glyphs is ~2M); 4M leaves generous headroom while
-/// keeping a hostile or buggy `bufferNew(10^6, 10^6)` from attempting
-/// a multi-terabyte allocation, which would abort the host process via
-/// `handle_alloc_error` — that path is NOT catchable by
-/// `catch_unwind`. Shared by `parse_buffer` and the `alloc` entries.
-pub const MAX_BUFFER_CELLS: usize = 4_000_000;
+/// Real terminals top out around half a million cells (a 500-column
+/// terminal at 1000 rows of scroll-free screen estate). The cap is
+/// not only about the `Vec<Cell>` itself: every entry returning a
+/// buffer marshals it through `build_buffer` as one 7-field pack per
+/// cell, so the host-side allocation count scales with the cell
+/// count. Allocator exhaustion aborts the process and is NOT
+/// catchable by `catch_unwind`, so the limit must sit close to real
+/// usage rather than merely below the absurd. Shared by
+/// `parse_buffer` and the `alloc` entries.
+pub const MAX_BUFFER_CELLS: usize = 500_000;
 
 /// Parse a `ScreenBuffer` pack into a mutable `BufferState`.
 ///

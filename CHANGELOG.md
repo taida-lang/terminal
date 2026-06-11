@@ -22,10 +22,12 @@ hunt.
   barrier, and buffer parsing rejects negative dimensions up front as
   `RendererInvalidArg`.
 - **Buffer allocation is bounded.** `bufferNew` / `bufferResize` /
-  buffer parsing reject more than 4,000,000 cells with
-  `RendererInvalidSize` instead of attempting a multi-terabyte
-  allocation, which would abort the host through the allocator with
-  no catchable error.
+  buffer parsing reject more than 500,000 cells with
+  `RendererInvalidSize`. Oversized requests previously went straight
+  to the allocator, and allocator exhaustion aborts the host process
+  with no catchable error — the bound also covers the per-cell pack
+  marshalling of buffer return values, so it sits close to real
+  terminal sizes rather than merely below the absurd.
 - **Width tables now match the pure-Taida reference (UAX #11).**
   Hangul choseong U+1100..U+115F are Wide — they previously fell into
   a combining range and vanished from `bufferWrite` output, so

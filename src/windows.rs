@@ -852,6 +852,9 @@ fn build_key_pack(
     ];
     let value = builder.pack(&names, &children);
     if value.is_null() {
+        // Pack construction failed — ownership of the children stays
+        // with us (ABI contract), so roll them back before erroring.
+        release_values(builder, &children);
         return emit_error(
             builder,
             out_error,
@@ -1230,6 +1233,9 @@ fn build_event_pack(
     ];
     let value = builder.pack(&names, &values);
     if value.is_null() {
+        // Pack construction failed — ownership of the children stays
+        // with us (ABI contract), so roll them back before erroring.
+        release_values(builder, &values);
         return emit_error(
             builder,
             out_error,
