@@ -160,16 +160,42 @@ static SIGWINCH_INIT: Mutex<()> = Mutex::new(());
 /// `null` means no previous handler was saved.
 static OLD_SIGWINCH: AtomicPtr<libc::sigaction> = AtomicPtr::new(core::ptr::null_mut());
 
+/// Async-signal-safe access to the calling thread's errno slot.
+fn errno_slot() -> *mut libc::c_int {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    unsafe {
+        libc::__error()
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    unsafe {
+        libc::__errno_location()
+    }
+}
+
 /// SIGWINCH signal handler. Writes a single byte to the self-pipe,
 /// then chains to the previously installed handler (TMB-007).
+///
+/// Installed with `SA_SIGINFO`, so we receive the real
+/// `(info, ucontext)` pair and can forward it verbatim when the
+/// previous handler is itself `SA_SIGINFO`-style. Such handlers are
+/// entitled to dereference `info` (kernel delivery guarantees it is
+/// non-null) — the old code chained with a null `info` and crashed
+/// the process on the first resize when e.g. a runtime's own handler
+/// was installed first.
 ///
 /// # Safety
 ///
 /// This is a signal handler — only async-signal-safe functions are used
 /// (`write` on a pipe fd, calling a previous handler via its function
 /// pointer). We don't check the return value of `write` because there's
-/// nothing we can do in a signal handler if the pipe is full.
-extern "C" fn sigwinch_handler(sig: i32) {
+/// nothing we can do in a signal handler if the pipe is full. errno is
+/// saved and restored so the `write` (or the chained handler) cannot
+/// clobber the errno of the syscall we interrupted — the EINTR checks
+/// in the poll loops read it right after returning.
+extern "C" fn sigwinch_handler(sig: i32, info: *mut libc::siginfo_t, ucontext: *mut libc::c_void) {
+    let errno = errno_slot();
+    let saved_errno = unsafe { *errno };
+
     // 1. Write to self-pipe (our own work).
     let wfd = SIGWINCH_PIPE[1].load(Ordering::Relaxed);
     if wfd >= 0 {
@@ -183,14 +209,15 @@ extern "C" fn sigwinch_handler(sig: i32) {
         let old_sa = unsafe { &*old_ptr };
         let handler = old_sa.sa_sigaction;
         if old_sa.sa_flags & libc::SA_SIGINFO != 0 {
-            // SA_SIGINFO style handler: fn(sig, info, ucontext)
+            // SA_SIGINFO style handler: fn(sig, info, ucontext).
+            // Forward the real pointers we received from the kernel.
             if handler != 0 && handler != libc::SIG_DFL && handler != libc::SIG_IGN {
                 let sa_sigaction_fn: extern "C" fn(
                     libc::c_int,
                     *mut libc::siginfo_t,
                     *mut libc::c_void,
                 ) = unsafe { core::mem::transmute(handler) };
-                sa_sigaction_fn(sig, core::ptr::null_mut(), core::ptr::null_mut());
+                sa_sigaction_fn(sig, info, ucontext);
             }
         } else {
             // Traditional handler: fn(sig)
@@ -201,6 +228,8 @@ extern "C" fn sigwinch_handler(sig: i32) {
             }
         }
     }
+
+    unsafe { *errno = saved_errno };
 }
 
 /// Ensure the SIGWINCH self-pipe and handler are installed.
@@ -277,8 +306,12 @@ fn ensure_sigwinch_pipe() -> i32 {
     //      in `ensure_sigwinch_pipe()` only skips the install once the
     //      handler is fully live.
     let mut sa: libc::sigaction = unsafe { core::mem::zeroed() };
-    sa.sa_sigaction = sigwinch_handler as *const () as usize;
-    sa.sa_flags = libc::SA_RESTART;
+    sa.sa_sigaction =
+        sigwinch_handler as extern "C" fn(i32, *mut libc::siginfo_t, *mut libc::c_void) as usize;
+    // SA_SIGINFO: our handler takes the 3-arg form so it can forward
+    // the kernel's real (info, ucontext) to a chained SA_SIGINFO
+    // predecessor (see `sigwinch_handler`).
+    sa.sa_flags = libc::SA_RESTART | libc::SA_SIGINFO;
     unsafe { libc::sigemptyset(&mut sa.sa_mask) };
 
     // Step 1: query current handler without installing ours.
@@ -350,16 +383,24 @@ fn drain_sigwinch_pipe(rfd: i32) {
 }
 
 /// Query current terminal size via ioctl.
+///
+/// `readEvent`'s TTY precondition is on *stdin*, but this helper
+/// historically asked stdout only. Under `app | tee log` stdout is a
+/// pipe, the ioctl fails, and every window resize surfaced as a
+/// spurious `ReadEventInterrupted` instead of a Resize event. Try the
+/// fd we actually read from first, then stdout, then stderr.
 fn query_terminal_size() -> Option<DecodedResize> {
-    let mut ws: libc::winsize = unsafe { core::mem::zeroed() };
-    let rc = unsafe { libc::ioctl(libc::STDOUT_FILENO, libc::TIOCGWINSZ, &mut ws) };
-    if rc != 0 || ws.ws_col == 0 || ws.ws_row == 0 {
-        return None;
+    for fd in [libc::STDIN_FILENO, libc::STDOUT_FILENO, libc::STDERR_FILENO] {
+        let mut ws: libc::winsize = unsafe { core::mem::zeroed() };
+        let rc = unsafe { libc::ioctl(fd, libc::TIOCGWINSZ, &mut ws) };
+        if rc == 0 && ws.ws_col != 0 && ws.ws_row != 0 {
+            return Some(DecodedResize {
+                cols: ws.ws_col as i64,
+                rows: ws.ws_row as i64,
+            });
+        }
     }
-    Some(DecodedResize {
-        cols: ws.ws_col as i64,
-        rows: ws.ws_row as i64,
-    })
+    None
 }
 
 // ── Mouse SGR decode ────────────────────────────────────────────
@@ -485,6 +526,17 @@ enum EventReadOutcome {
 /// Uses `poll(2)` to wait on both stdin and the SIGWINCH self-pipe.
 /// Returns the first event that becomes available.
 fn read_one_event(fd: i32) -> EventReadOutcome {
+    // A stashed surplus from a previous read must be served *before*
+    // blocking in poll: otherwise an already-buffered event would not
+    // be delivered until the next physical input arrives. (With the
+    // current decoders `consumed == len` always holds, so the stash
+    // stays empty in practice — this guards the framing contract, not
+    // a live path; see TMB-009 / C26B-012.)
+    let has_pending = PENDING_BYTES.with_borrow(|pending| !pending.is_empty());
+    if has_pending {
+        return read_stdin_event(fd);
+    }
+
     let sigwinch_rfd = ensure_sigwinch_pipe();
 
     // TMB-008: If SIGWINCH pipe initialization failed, return a
