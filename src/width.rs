@@ -109,10 +109,15 @@ fn is_control(cp: u32) -> bool {
 }
 
 fn is_combining(cp: u32) -> bool {
+    // Ranges mirror the pure-Taida reference table in
+    // `taida/width.td` (`twIsCombining`): Hangul jungseong/jongseong
+    // start at U+1160 (U+1100..=U+115F choseong are Wide, handled by
+    // `is_wide`), and the kana voicing marks pair is U+3099..=U+309A
+    // (U+309B/U+309C are the non-combining full-width forms).
     matches!(
         cp,
         0x0300..=0x036F
-        | 0x1100..=0x117F
+        | 0x1160..=0x11FF
         | 0x1AB0..=0x1AFF
         | 0x1DC0..=0x1DFF
         | 0x20D0..=0x20FF
@@ -122,7 +127,7 @@ fn is_combining(cp: u32) -> bool {
         | 0x200C
         | 0x200D
         | 0xFEFF
-        | 0x309A..=0x309B
+        | 0x3099..=0x309A
         | 0xE0100..=0xE01EF
     )
 }
@@ -243,9 +248,11 @@ pub fn truncate_width(text: &str, width: i64) -> String {
         out.push(c);
         remaining -= w;
         if remaining < 1 && w > 0 {
-            // Any further positive-width char would exceed; avoid the
-            // extra loop iteration cost.
-            continue;
+            // Budget exhausted. Stop here so trailing zero-width marks
+            // are not appended once `remaining` hits zero — matching
+            // the `_twLoop` reference, which checks `remaining < 1` at
+            // the top of each iteration.
+            break;
         }
     }
     out
@@ -868,5 +875,55 @@ mod tests {
                 "width mismatch at U+{cp:04X}: width.rs={ours} vs renderer/ops.rs={theirs}"
             );
         }
+    }
+
+    /// UAX #11 anchor values around the Hangul jamo and kana voicing
+    /// mark boundaries. These pin the *correct* classification with
+    /// externally-sourced expectations, so a future range edit cannot
+    /// reintroduce the off-by-one this caught (`is_combining` once
+    /// swallowed U+1100..=U+115F, shadowing the `is_wide` entry, and
+    /// covered U+309B while missing U+3099). The pure-Taida reference
+    /// table in `taida/width.td` agrees on every line below.
+    #[test]
+    fn hangul_jamo_and_kana_voicing_match_uax11() {
+        // Choseong (leading consonants) and the choseong filler are
+        // East Asian Wide.
+        assert_eq!(char_width(0x1100), 2, "U+1100 HANGUL CHOSEONG KIYEOK");
+        assert_eq!(char_width(0x1112), 2, "U+1112 HANGUL CHOSEONG HIEUH");
+        assert_eq!(char_width(0x115F), 2, "U+115F HANGUL CHOSEONG FILLER");
+        // Jungseong / jongseong combine into the preceding syllable.
+        assert_eq!(char_width(0x1160), 0, "U+1160 HANGUL JUNGSEONG FILLER");
+        assert_eq!(char_width(0x1161), 0, "U+1161 HANGUL JUNGSEONG A");
+        assert_eq!(char_width(0x11AB), 0, "U+11AB HANGUL JONGSEONG NIEUN");
+        assert_eq!(char_width(0x11FF), 0, "U+11FF HANGUL JONGSEONG SSANGNIEUN");
+        // NFD-decomposed 한 must measure like its NFC form.
+        assert_eq!(display_width("\u{1112}\u{1161}\u{11AB}"), 2);
+        assert_eq!(display_width("\u{D55C}"), 2);
+        // Combining kana voicing marks are zero-width; the standalone
+        // full-width forms are Wide.
+        assert_eq!(char_width(0x3099), 0, "U+3099 COMBINING VOICED SOUND MARK");
+        assert_eq!(
+            char_width(0x309A),
+            0,
+            "U+309A COMBINING SEMI-VOICED SOUND MARK"
+        );
+        assert_eq!(char_width(0x309B), 2, "U+309B VOICED SOUND MARK");
+        assert_eq!(char_width(0x309C), 2, "U+309C SEMI-VOICED SOUND MARK");
+        // NFD か + combining dakuten renders as one wide glyph (が).
+        assert_eq!(display_width("\u{304B}\u{3099}"), 2);
+    }
+
+    /// Budget-exhaustion boundary: once `remaining` hits zero the loop
+    /// must stop, so trailing zero-width marks are *not* appended.
+    /// Matches the pure-Taida `_twLoop`, which checks `remaining < 1`
+    /// at the top of each iteration. (A dead `continue` here used to
+    /// keep the loop alive and include them.)
+    #[test]
+    fn truncate_width_drops_trailing_marks_once_budget_is_exhausted() {
+        // Marks are kept while budget remains...
+        assert_eq!(truncate_width("a\u{300}b", 2), "a\u{300}b");
+        // ...but not after the budget is exhausted.
+        assert_eq!(truncate_width("ab\u{300}", 2), "ab");
+        assert_eq!(truncate_width("ab\u{300}\u{301}c", 2), "ab");
     }
 }

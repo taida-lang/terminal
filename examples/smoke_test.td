@@ -224,4 +224,65 @@ stdout("bufferBlit.wide_inbounds.2:" + blit6_2.text)
 stdout("bufferBlit.wide_inbounds.3:" + blit6_3.text)
 
 stdout("PASS:renderer_ops")
-stdout("PASS:all_smoke_tests")
+
+// -- Hardening regressions --
+//
+// Invalid buffers must surface catchable renderer errors. A
+// negative-dimension buffer reaching bufferDiff / renderFrame once
+// panicked outside the FFI catch boundary and aborted the host
+// process, so this section *running to completion* is itself part of
+// the assertion. The width anchors pin the UAX #11 classification of
+// Hangul jamo and kana voicing marks to the pure-Taida reference
+// table in width.td.
+
+probeDiffNegativeDims unused: Int =
+  |== error: Error = "caught" => :Str
+  bad <= ScreenBuffer(cols <= -5, rows <= 3, cells <= @[], cursor_col <= 1, cursor_row <= 1, cursor_visible <= true)
+  d <= bufferDiff(bad, bad)
+  | d.requires_full |> "no_error:full"
+  | _ |> "no_error:ops"
+=> :Str
+
+probeFrameNegativeDims unused: Int =
+  |== error: Error = "caught" => :Str
+  bad <= ScreenBuffer(cols <= -5, rows <= 3, cells <= @[], cursor_col <= 1, cursor_row <= 1, cursor_visible <= true)
+  f <= renderFrame(bad, bad)
+  | f.text.length() > 0 |> "no_error:text"
+  | _ |> "no_error:empty"
+=> :Str
+
+probeHugeAllocation unused: Int =
+  |== error: Error = "caught" => :Str
+  b <= bufferNew(1000000, 1000000)
+  | b.cols > 0 |> "no_error:cols"
+  | _ |> "no_error:zero"
+=> :Str
+
+expectStr label: Str actual: Str expected: Str =
+  | actual == expected |> ""
+  | _ |> "[" + label + " got '" + actual + "' want '" + expected + "']"
+=> :Str
+
+expectInt label: Str actual: Int expected: Int =
+  | actual == expected |> ""
+  | _ |> "[" + label + " got " + actual.toString() + " want " + expected.toString() + "]"
+=> :Str
+
+hw1 <= expectStr("hardening.diff_negative_dims", probeDiffNegativeDims(0), "caught")
+hw2 <= hw1 + expectStr("hardening.frame_negative_dims", probeFrameNegativeDims(0), "caught")
+hw3 <= hw2 + expectStr("hardening.huge_allocation", probeHugeAllocation(0), "caught")
+hw4 <= hw3 + expectInt("width.nfd_hangul", displayWidth("한"), 2)
+hw5 <= hw4 + expectInt("width.choseong_wide", displayWidth("ᄒ"), 2)
+hw6 <= hw5 + expectInt("width.jungseong_jongseong_zero", displayWidth("ᅡᆫ"), 0)
+hw7 <= hw6 + expectInt("width.combining_dakuten_zero", displayWidth("゙"), 0)
+hw8 <= hw7 + expectInt("width.standalone_dakuten_wide", displayWidth("゛"), 2)
+hw9 <= hw8 + expectInt("width.nfd_ga", displayWidth("が"), 2)
+hw10 <= hw9 + expectStr("width.truncate_budget_exhausted", truncateWidth("ab̀", 2), "ab")
+stdout("PASS:hardening_probes_ran")
+
+finalGate failures: Str =
+  | failures == "" |> "PASS:all_smoke_tests"
+  | _ |> "FAIL:hardening " + failures
+=> :Str
+
+stdout(finalGate(hw10))

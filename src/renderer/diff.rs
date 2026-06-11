@@ -417,15 +417,17 @@ pub fn buffer_diff_impl(
         _ => return TaidaAddonStatus::NullPointer,
     };
 
+    // The diff computation itself must run inside `catch_unwind` too:
+    // a panic that crosses the `extern "C"` dispatcher aborts the
+    // whole host process instead of surfacing `RendererPanic`.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let prev = parse_buffer(&a0)?;
         let next = parse_buffer(&a1)?;
-        Ok::<(BufferState, BufferState), RendererError>((prev, next))
+        Ok::<(Vec<DiffOp>, bool), RendererError>(diff_buffers(&prev, &next))
     }));
 
     match result {
-        Ok(Ok((prev, next))) => {
-            let (ops, requires_full) = diff_buffers(&prev, &next);
+        Ok(Ok((ops, requires_full))) => {
             let value = build_diff_result(&builder, &ops, requires_full);
             if value.is_null() {
                 return emit_error(
@@ -563,20 +565,23 @@ pub fn render_frame_impl(
         _ => return TaidaAddonStatus::NullPointer,
     };
 
+    // As in `buffer_diff_impl`: diff + render must stay inside
+    // `catch_unwind` so a panic surfaces as `RendererPanic` instead of
+    // aborting the host process at the `extern "C"` boundary.
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let prev = parse_buffer(&a0)?;
         let next = parse_buffer(&a1)?;
-        Ok::<(BufferState, BufferState), RendererError>((prev, next))
+        let (ops, requires_full) = diff_buffers(&prev, &next);
+        let text = if requires_full {
+            render_full(&next)
+        } else {
+            render_ops_to_string(&ops)
+        };
+        Ok::<(String, BufferState), RendererError>((text, next))
     }));
 
     match result {
-        Ok(Ok((prev, next))) => {
-            let (ops, requires_full) = diff_buffers(&prev, &next);
-            let text = if requires_full {
-                render_full(&next)
-            } else {
-                render_ops_to_string(&ops)
-            };
+        Ok(Ok((text, next))) => {
             let value = build_frame_result(&builder, &text, &next);
             if value.is_null() {
                 return emit_error(

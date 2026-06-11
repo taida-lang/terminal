@@ -476,6 +476,16 @@ pub fn parse_cell(value: &BorrowedValue<'_>) -> Result<Cell, RendererError> {
 
 // ── Buffer parsing ────────────────────────────────────────────────
 
+/// Upper bound on `cols * rows` accepted from the FFI boundary.
+///
+/// Real terminals top out around half a million cells (an 8K monitor
+/// of 6-pixel glyphs is ~2M); 4M leaves generous headroom while
+/// keeping a hostile or buggy `bufferNew(10^6, 10^6)` from attempting
+/// a multi-terabyte allocation, which would abort the host process via
+/// `handle_alloc_error` — that path is NOT catchable by
+/// `catch_unwind`. Shared by `parse_buffer` and the `alloc` entries.
+pub const MAX_BUFFER_CELLS: usize = 4_000_000;
+
 /// Parse a `ScreenBuffer` pack into a mutable `BufferState`.
 ///
 /// Walks the `cells` list once and clones every `Cell` into a fresh
@@ -488,6 +498,20 @@ pub fn parse_buffer(value: &BorrowedValue<'_>) -> Result<BufferState, RendererEr
     let pack = need_pack(value, "buffer")?;
     let cols = field_int(&pack, "cols", 0)?;
     let rows = field_int(&pack, "rows", 0)?;
+    // Negative dimensions can never describe a buffer. Reject them at
+    // the parse boundary: every downstream index/capacity computation
+    // (`diff_buffers`, `render_full`) assumes non-negative dims, and a
+    // negative value reaching them panics instead of erroring.
+    if cols < 0 || rows < 0 {
+        return Err(RendererError::InvalidArg(format!(
+            "buffer dimensions must be non-negative, got cols={cols} rows={rows}"
+        )));
+    }
+    if (cols as u128) * (rows as u128) > MAX_BUFFER_CELLS as u128 {
+        return Err(RendererError::InvalidSize(format!(
+            "buffer of {cols}x{rows} cells exceeds the {MAX_BUFFER_CELLS}-cell limit"
+        )));
+    }
     let cursor_col = field_int(&pack, "cursor_col", 1)?;
     let cursor_row = field_int(&pack, "cursor_row", 1)?;
     let cursor_visible = field_bool(&pack, "cursor_visible", true)?;
@@ -496,7 +520,7 @@ pub fn parse_buffer(value: &BorrowedValue<'_>) -> Result<BufferState, RendererEr
     let cells_list = cells_value
         .as_list()
         .ok_or_else(|| RendererError::InvalidArg("buffer.cells must be a list".to_string()))?;
-    let expected = (cols.max(0) as usize).saturating_mul(rows.max(0) as usize);
+    let expected = (cols as usize).saturating_mul(rows as usize);
     if cells_list.len() != expected {
         return Err(RendererError::InvalidArg(format!(
             "buffer.cells length mismatch: have {}, expected cols*rows={}",

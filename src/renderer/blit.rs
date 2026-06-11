@@ -148,6 +148,11 @@ pub fn blit_into(main: &mut BufferState, sub: &BufferState, col: i64, row: i64) 
         if copy_width == 0 {
             continue;
         }
+        // Left-seam defence (mirrors `ops::write_text`): if this row's
+        // first copied cell lands on the placeholder of a wide pair
+        // already in `main`, blank that pair's lead so it cannot
+        // survive as an orphan.
+        crate::renderer::ops::clear_wide_lead_at_left_seam(main, col, row + dr as i64);
         let main_row_start = (main_base_row + dr) * main_cols + main_base_col;
         // Clone sub-slice into main-slice. `clone_from_slice` requires
         // equal-length slices; `copy_width` was constructed to satisfy
@@ -569,5 +574,35 @@ mod tests {
         for cell in &main.cells {
             assert_eq!(cell.text, "#");
         }
+    }
+
+    #[test]
+    fn blit_left_seam_clears_orphaned_wide_lead_in_main() {
+        // 漢 occupies cols 4-5 of main (lead@idx3, placeholder@idx4).
+        // Blitting onto col 5 overwrites only the placeholder — the
+        // lead must be blanked or the row renders 7 columns wide.
+        let mut main = make_buf(6, 1, " ");
+        main.cells[3].text = "漢".to_string();
+        let sub = make_buf(2, 1, "A");
+        blit_into(&mut main, &sub, 5, 1);
+        assert_eq!(
+            main.cells[3].text, " ",
+            "orphaned wide lead must be blanked"
+        );
+        assert_eq!(main.cells[4].text, "A");
+        assert_eq!(main.cells[5].text, "A");
+    }
+
+    #[test]
+    fn blit_left_seam_applies_per_row() {
+        let mut main = make_buf(4, 2, " ");
+        main.cells[0].text = "漢".to_string(); // row 1: lead@1, ph@2
+        main.cells[4].text = "字".to_string(); // row 2: lead@1, ph@2
+        let sub = make_buf(2, 2, "x");
+        blit_into(&mut main, &sub, 2, 1);
+        assert_eq!(main.cells[0].text, " ");
+        assert_eq!(main.cells[4].text, " ");
+        assert_eq!(main.cells[1].text, "x");
+        assert_eq!(main.cells[5].text, "x");
     }
 }

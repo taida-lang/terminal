@@ -113,6 +113,20 @@ pub fn buffer_resize(prev: &BufferState, cols: i64, rows: i64) -> BufferState {
     state
 }
 
+/// Reject `cols * rows` beyond `MAX_BUFFER_CELLS`. A pathological
+/// request (e.g. `bufferNew(10^6, 10^6)`) would otherwise attempt a
+/// multi-terabyte allocation and abort the host process through
+/// `handle_alloc_error`, which `catch_unwind` cannot intercept.
+fn check_cell_limit(cols: i64, rows: i64) -> Result<(), RendererError> {
+    if (cols as u128) * (rows as u128) > state::MAX_BUFFER_CELLS as u128 {
+        return Err(RendererError::InvalidSize(format!(
+            "buffer of {cols}x{rows} cells exceeds the {}-cell limit",
+            state::MAX_BUFFER_CELLS
+        )));
+    }
+    Ok(())
+}
+
 // ── FFI helpers (mirror the existing renderer modules) ────────────
 
 fn arg_at<'a>(
@@ -206,6 +220,7 @@ pub fn buffer_new_impl(
         if rows < 1 {
             return Err(RendererError::InvalidSize("rows must be >= 1".to_string()));
         }
+        check_cell_limit(cols, rows)?;
         Ok::<BufferState, RendererError>(buffer_new(cols, rows))
     }));
 
@@ -267,6 +282,7 @@ pub fn buffer_resize_impl(
         if rows < 1 {
             return Err(RendererError::InvalidSize("rows must be >= 1".to_string()));
         }
+        check_cell_limit(cols, rows)?;
         // `fill` (a3) is currently *not consulted* — the pure-Taida
         // facade always seeds with the default `Cell` regardless of
         // what the caller passes. We keep that behaviour so byte shape
@@ -296,6 +312,24 @@ pub fn buffer_resize_impl(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn check_cell_limit_rejects_pathological_dimensions() {
+        // Exactly at the limit is accepted (2000 * 2000 = 4_000_000).
+        assert!(check_cell_limit(2000, 2000).is_ok());
+        assert!(check_cell_limit(state::MAX_BUFFER_CELLS as i64, 1).is_ok());
+        // One row past the limit is rejected before any allocation.
+        assert!(matches!(
+            check_cell_limit(2001, 2000),
+            Err(RendererError::InvalidSize(_))
+        ));
+        // The motivating case: bufferNew(10^6, 10^6) must never reach
+        // the allocator (it would abort the host via handle_alloc_error).
+        assert!(matches!(
+            check_cell_limit(1_000_000, 1_000_000),
+            Err(RendererError::InvalidSize(_))
+        ));
+    }
 
     #[test]
     fn buffer_new_1x1_has_one_default_cell() {

@@ -67,10 +67,13 @@ fn cdylib_name() -> &'static str {
 
 fn locate_cdylib(crate_dir: &std::path::Path) -> Option<PathBuf> {
     let name = cdylib_name();
+    // Prefer the current Cargo build output, mirroring
+    // scripts/smoke-test.sh: a stale untracked `native/<lib>.so` left
+    // over from an old release must not mask the code under test.
     let candidates = [
-        crate_dir.join("native").join(name),
         crate_dir.join("target").join("debug").join(name),
         crate_dir.join("target").join("release").join(name),
+        crate_dir.join("native").join(name),
     ];
     candidates.into_iter().find(|p| p.is_file())
 }

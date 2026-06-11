@@ -85,10 +85,15 @@ fn is_control(cp: u32) -> bool {
 }
 
 fn is_combining(cp: u32) -> bool {
+    // Ranges mirror the pure-Taida reference table in
+    // `taida/width.td` (`twIsCombining`): Hangul jungseong/jongseong
+    // start at U+1160 (U+1100..=U+115F choseong are Wide, handled by
+    // `is_wide`), and the kana voicing marks pair is U+3099..=U+309A
+    // (U+309B/U+309C are the non-combining full-width forms).
     matches!(
         cp,
         0x0300..=0x036F
-        | 0x1100..=0x117F
+        | 0x1160..=0x11FF
         | 0x1AB0..=0x1AFF
         | 0x1DC0..=0x1DFF
         | 0x20D0..=0x20FF
@@ -98,7 +103,7 @@ fn is_combining(cp: u32) -> bool {
         | 0x200C
         | 0x200D
         | 0xFEFF
-        | 0x309A..=0x309B
+        | 0x3099..=0x309A
         | 0xE0100..=0xE01EF
     )
 }
@@ -119,12 +124,33 @@ fn is_wide(cp: u32) -> bool {
 
 // ── Mutation primitives ───────────────────────────────────────────
 
+/// Left-seam wide-pair defence: if writing at `(col, row)` would
+/// overwrite the trailing placeholder of an existing wide-char pair,
+/// blank the lead cell one column to the left. Otherwise the lead
+/// survives as an orphan and the row renders one column wider than
+/// `cols` — breaking the invariant `blit.rs` documents: every wide
+/// lead must keep its placeholder. The style of the cleared lead is
+/// preserved so background colour does not flicker.
+///
+/// `pub(crate)` so `renderer::blit` applies the same policy at each
+/// blit row's left seam.
+pub(crate) fn clear_wide_lead_at_left_seam(buf: &mut BufferState, col: i64, row: i64) {
+    if col < 2 || col > buf.cols || row < 1 || row > buf.rows {
+        return;
+    }
+    let lead_idx = ((row - 1) * buf.cols + (col - 2)) as usize;
+    if cell_is_wide_lead(&buf.cells[lead_idx].text) {
+        buf.cells[lead_idx].text = " ".to_string();
+    }
+}
+
 /// Put a single cell at `(col, row)` after bounds checking. Mutates
 /// `buf` in place.
 fn put_cell(buf: &mut BufferState, col: i64, row: i64, cell: Cell) -> Result<(), RendererError> {
     let idx = buf
         .cell_index(col, row)
         .ok_or_else(|| RendererError::OutOfBounds(format!("col {col} row {row} out of bounds")))?;
+    clear_wide_lead_at_left_seam(buf, col, row);
     buf.cells[idx] = cell;
     Ok(())
 }
@@ -149,6 +175,7 @@ pub fn write_text(buf: &mut BufferState, mut col: i64, row: i64, text: &str, sty
         // refactor cannot accidentally overwrite arbitrary memory.
         return;
     }
+    let mut first_write = true;
     for ch in text.chars() {
         let cp = ch as u32;
         let w = char_width(cp);
@@ -158,6 +185,16 @@ pub fn write_text(buf: &mut BufferState, mut col: i64, row: i64, text: &str, sty
         if col + (w as i64) - 1 > buf.cols {
             // Right-edge truncation: would cross the boundary. Stop.
             break;
+        }
+        if first_write {
+            // Only the *starting* column can land on an existing
+            // pair's placeholder: past that point, the previous cell
+            // is always one we just wrote ourselves (a wide write
+            // advances `col` by 2, placing its own placeholder).
+            // Deferred until the first real write so a fully
+            // truncated call leaves the buffer untouched.
+            clear_wide_lead_at_left_seam(buf, col, row);
+            first_write = false;
         }
         let mut buf_str = [0u8; 4];
         let ch_str = ch.encode_utf8(&mut buf_str);
@@ -192,6 +229,9 @@ fn fill_rect(buf: &mut BufferState, col0: i64, row0: i64, width: i64, height: i6
     let end_col = (col0 + width).min(buf.cols + 1);
     let end_row = (row0 + height).min(buf.rows + 1);
     for r in row0..end_row {
+        // Same left-seam defence as `write_text`: the rect's first
+        // column may overwrite an existing wide pair's placeholder.
+        clear_wide_lead_at_left_seam(buf, col0, r);
         for c in col0..end_col {
             put_cell_unchecked(buf, c, r, cell.clone());
         }
@@ -705,5 +745,85 @@ mod tests {
         for c in &buf.cells {
             assert_eq!(c.text, ".");
         }
+    }
+
+    // ── Left-seam wide-pair defence ───────────────────────────────
+    //
+    // Writing over the trailing placeholder of an existing wide pair
+    // must blank the pair's lead; otherwise the orphaned lead makes
+    // the row render one column wider than `cols`.
+
+    #[test]
+    fn write_text_left_seam_clears_orphaned_wide_lead() {
+        let mut buf = make_buf(4, 1);
+        let style = CellStyle::empty();
+        write_text(&mut buf, 1, 1, "漢", &style); // lead@1, placeholder@2
+        write_text(&mut buf, 2, 1, "X", &style); // lands on the placeholder
+        assert_eq!(
+            buf.cells[0].text, " ",
+            "orphaned wide lead must be blanked"
+        );
+        assert_eq!(buf.cells[1].text, "X");
+    }
+
+    #[test]
+    fn put_cell_left_seam_clears_orphaned_wide_lead() {
+        let mut buf = make_buf(4, 1);
+        let style = CellStyle::empty();
+        write_text(&mut buf, 1, 1, "漢", &style);
+        let x = Cell {
+            text: "X".to_string(),
+            style: CellStyle::empty(),
+        };
+        put_cell(&mut buf, 2, 1, x).unwrap();
+        assert_eq!(
+            buf.cells[0].text, " ",
+            "orphaned wide lead must be blanked"
+        );
+        assert_eq!(buf.cells[1].text, "X");
+    }
+
+    #[test]
+    fn fill_rect_left_seam_clears_orphaned_wide_lead() {
+        let mut buf = make_buf(4, 2);
+        let style = CellStyle::empty();
+        write_text(&mut buf, 1, 1, "漢", &style);
+        write_text(&mut buf, 1, 2, "字", &style);
+        let cell = Cell {
+            text: "#".to_string(),
+            style: CellStyle::empty(),
+        };
+        // Rect starts on column 2 = both rows' placeholder column.
+        fill_rect(&mut buf, 2, 1, 2, 2, &cell);
+        assert_eq!(buf.cells[0].text, " ", "row 1 lead must be blanked");
+        assert_eq!(buf.cells[4].text, " ", "row 2 lead must be blanked");
+        assert_eq!(buf.cells[1].text, "#");
+        assert_eq!(buf.cells[5].text, "#");
+    }
+
+    #[test]
+    fn write_text_left_seam_keeps_lead_when_nothing_is_written() {
+        let mut buf = make_buf(2, 1);
+        let style = CellStyle::empty();
+        write_text(&mut buf, 1, 1, "漢", &style); // fills the whole row
+        // A wide char at col 2 cannot fit (placeholder would spill
+        // past the edge) — nothing is written, so the existing pair
+        // must survive intact.
+        write_text(&mut buf, 2, 1, "働", &style);
+        assert_eq!(buf.cells[0].text, "漢", "pair must survive a no-op write");
+        assert_eq!(buf.cells[1].text, " ");
+    }
+
+    #[test]
+    fn write_text_overwriting_lead_leaves_no_orphan() {
+        let mut buf = make_buf(4, 1);
+        let style = CellStyle::empty();
+        write_text(&mut buf, 3, 1, "漢", &style); // lead@3, placeholder@4
+        write_text(&mut buf, 1, 1, "abc", &style); // overwrites the lead at col 3
+        // The old placeholder at col 4 keeps rendering as a space —
+        // harmless — and no wide lead survives without its pair.
+        assert_eq!(buf.cells[2].text, "c");
+        assert_eq!(buf.cells[3].text, " ");
+        assert!(!cell_is_wide_lead(&buf.cells[2].text));
     }
 }
