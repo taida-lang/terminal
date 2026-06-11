@@ -118,70 +118,8 @@ KeyKind <= @(
 // Public-surface aliases for the Rust addon functions. The identifiers
 // `terminalSize`, `readKey`, `isTerminal`, etc. are pre-injected into
 // this facade's environment by the interpreter (see
-// `src/interpreter/module_eval.rs::load_addon_facade`) as addon
+// `src/interpreter/module.rs::load_addon_facade`) as addon
 // sentinels. We export the camelCase sentinels directly.
-//
-///@ Purpose: ターミナルのカラム数・行数を取得する
-///@ Returns: @(cols: Int, rows: Int) — 両方 >= 1
-///@ Throws:
-///@   TerminalSizeNotATty: stdout が TTY でない場合
-///@   TerminalSizeIoctl: ioctl(TIOCGWINSZ) が失敗した場合
-///@ Example:
-///@   size <= terminalSize()
-///@   stdout(size.cols)
-///@   stdout(size.rows)
-///@ AI-SideEffects: ioctl システムコールを発行する（読み取り専用、副作用なし）
-
-///@ Purpose: キーボードから1キー分の入力を読み取る（raw モード）
-///@ Returns: @(kind: KeyKind, text: Str, ctrl: Bool, alt: Bool, shift: Bool)
-///@ Throws:
-///@   ReadKeyNotATty: stdin が TTY でない場合
-///@   ReadKeyRawMode: raw モードの開始/終了に失敗した場合
-///@   ReadKeyEof: EOF を検出した場合
-///@   ReadKeyInterrupted: シグナル割り込みが発生した場合
-///@ Example:
-///@   key <= readKey()
-///@   key.kind |== KeyKind.escape => stdout("Escaped!")
-///@ AI-SideEffects: stdin を一時的に raw モードに変更し、RAII で自動復元する
-///@ AI-Context: ブロッキング呼び出し。1キー読み取り後に raw モードを解除して返る。
-
-///@ Purpose: 指定ストリームが TTY かどうかを判定する
-///@ Params:
-///@   stream: "stdin" | "stdout" | "stderr"
-///@ Returns: Bool
-///@ Throws:
-///@   IsTerminalInvalidStream: stream が "stdin" / "stdout" / "stderr" 以外の場合
-///@ Example:
-///@   interactive <= isTerminal("stdin")
-///@   stdout(interactive.toString())
-///@ AI-SideEffects: `isatty` システムコールを発行する（読み取り専用、副作用なし）
-
-// ── Raw Mode ────────────────────────────────────────────────────
-
-///@ Purpose: stdin を raw モードに切り替える
-///@ Returns: @(active: Bool) — 成功後は active=true
-///@ Throws:
-///@   RawModeNotATty: stdin が TTY でない場合
-///@   RawModeAlreadyActive: 既に raw モードの場合（二重 enter 禁止）
-///@   RawModeEnterFailed: termios 操作に失敗した場合
-///@ Example:
-///@   rawModeEnter()
-///@   key <= readKey()
-///@   rawModeLeave()
-///@ AI-SideEffects: stdin の termios を変更する。rawModeLeave で復元必須。
-///@ AI-Context: TUI アプリで rawModeEnter → readKey xN → rawModeLeave の
-///@   パターンに使う。raw モード中の readKey は自身の enter/leave をスキップする。
-
-///@ Purpose: stdin を raw モードから復元する
-///@ Returns: @(active: Bool) — 成功後は active=false
-///@ Throws:
-///@   RawModeNotActive: raw モードでない状態で呼んだ場合
-///@   RawModeLeaveFailed: termios 復元に失敗した場合
-///@ Example:
-///@   rawModeEnter()
-///@   key <= readKey()
-///@   rawModeLeave()
-///@ AI-SideEffects: stdin の termios を復元する
 
 // ── Screen / Cursor / Style facade imports ──────────────────────
 //
@@ -209,30 +147,6 @@ KeyKind <= @(
 // sentinels injected; typical sub-module inputs are short (< 200 chars)
 // so the O(N²) fallback is bounded by the frame budget.
 
-///@ Purpose: 単一グラフィムの表示幅と分類を測定する
-///@ Params: text: Str (最初の scalar value のみ評価)
-///@ Returns: @(width: Int, mode: Int) — mode は WidthMode タグ (narrow=0 / wide=1 / zero=2)
-///@ Notes: 空文字列は @(width <= 0, mode <= WidthMode.zero) を返す
-
-///@ Purpose: 文字列の合計表示幅をセル数で返す
-///@ Params: text: Str
-///@ Returns: Int
-///@ Notes: 結合文字 / 制御文字は 0、East Asian Wide / Fullwidth は 2、それ以外は 1
-
-///@ Purpose: セルテキストを正規化する (TAB -> 4 spaces, \n/\r 除去, 空文字列 -> " ")
-///@ Params: text: Str
-///@ Returns: Str
-
-///@ Purpose: 文字列を指定表示幅で切り詰める (右端で打ち切り、wide char 境界で余剰は drop)
-///@ Params: text: Str, width: Int (1-based)
-///@ Returns: Str
-///@ Notes: width < 1 は "" を返す
-
-///@ Purpose: 右側を空白で埋めて指定表示幅に揃える
-///@ Params: text: Str, width: Int
-///@ Returns: Str
-///@ Notes: 既に width 以上の場合は text をそのまま返す
-
 >>> ./renderer.td => @(Cell, CellStyle, ScreenBuffer, DiffOpKind, DiffOp)
 
 // ── Renderer native dispatch ────────────────────────────────────
@@ -243,63 +157,6 @@ KeyKind <= @(
 // `bufferClear` / `bufferDiff` / `renderFull` / `renderFrame` /
 // `renderOps` / `bufferBlit` / `bufferNew` / `bufferResize`) are
 // exported directly without PascalCase aliases.
-
-///@ Purpose: 空の ScreenBuffer を指定サイズで確保する
-///@ Params:
-///@   cols: Int (>= 1)
-///@   rows: Int (>= 1)
-///@ Returns: ScreenBuffer — cells は row-major で cols*rows 個の default Cell
-///@ Throws: RendererInvalidSize — cols < 1 または rows < 1
-///@ AI-Context: native 実装では `vec![default; cols*rows]` で一括確保。
-
-///@ Purpose: ScreenBuffer を新しいサイズで再確保する
-///@ Params:
-///@   buf:   ScreenBuffer — リサイズ元（cursor_visible のみ引き継ぐ）
-///@   cols:  Int (>= 1)
-///@   rows:  Int (>= 1)
-///@   fill:  Cell — v1 契約で無視される（default Cell で埋める）
-///@ Returns: ScreenBuffer
-///@ Throws: RendererInvalidSize — cols < 1 または rows < 1
-
-///@ Purpose: 単一セルを (col, row) に書き込む
-///@ Returns: ScreenBuffer — 同じサイズの新パック
-///@ Throws: RendererOutOfBounds — col<1 / row<1 / col>cols / row>rows
-
-///@ Purpose: テキストを (col, row) から書き、表示幅で進める
-///@ Params:
-///@   buf:   ScreenBuffer
-///@   col:   Int (1-based, 範囲内必須)
-///@   row:   Int (1-based, 範囲内必須)
-///@   text:  Str
-///@   style: @(fg, bg, bold, dim, underline, italic) — 6 フィールド全て必要
-///@ Returns: ScreenBuffer
-///@ Throws: RendererOutOfBounds — 開始位置が範囲外
-
-///@ Purpose: 矩形領域を cell で塗りつぶす
-///@ Throws: RendererOutOfBounds — col<1 / row<1。width<1 / height<1 は no-op。
-
-///@ Purpose: バッファ全体を fill cell で塗りつぶす
-
-///@ Purpose: 2 つのバッファ間の最小 diff 操作リストを生成する
-///@ Returns: @(ops <= @[DiffOp...], requires_full <= Bool)
-
-///@ Purpose: バッファ全体を ANSI 文字列としてレンダリングする
-///@ Returns: Str
-
-///@ Purpose: DiffOp リストを ANSI 文字列に変換する
-///@ Returns: Str
-
-///@ Purpose: prev / next の差分を最小 ANSI 出力として生成する
-///@ Returns: @(text <= Str, next <= ScreenBuffer)
-
-///@ Purpose: sub バッファを main バッファの (col, row) 位置に合成する
-///@ Params:
-///@   main: ScreenBuffer — コピー先（結果はこの shape を保つ）
-///@   sub:  ScreenBuffer — コピー元
-///@   col:  Int (1-based) — main 内の左上 col
-///@   row:  Int (1-based) — main 内の左上 row
-///@ Returns: ScreenBuffer — main と同じ cols/rows の新パック
-///@ Throws: RendererOutOfBounds — col<1 / row<1
 
 // ── Event Types ─────────────────────────────────────────────────
 
@@ -354,44 +211,6 @@ MouseKind <= @(
   scroll_up   <= 4
   scroll_down <= 5
 )
-
-// ── readEvent ──────────────────────────────────────────────────
-
-///@ Purpose: 統合イベントを1つ読み取る（キー / マウス / リサイズ）
-///@ Returns: @(kind: EventKind, key: @(...), mouse: @(...), resize: @(...))
-///@ Throws:
-///@   ReadEventNotInRawMode: raw モードでない場合
-///@   ReadEventNotATty: stdin が TTY でない場合
-///@   ReadEventReadFailed: read(2) が失敗した場合
-///@   ReadEventEof: stdin が閉じた場合
-///@   ReadEventInterrupted: シグナル割り込みが発生した場合
-///@ Example:
-///@   rawModeEnter()
-///@   stdout(mouseTrackingEnter())
-///@   event <= readEvent()
-///@   event.kind |== EventKind.key => stdout(event.key.text)
-///@   event.kind |== EventKind.mouse => stdout("mouse at " + event.mouse.col.toString())
-///@   event.kind |== EventKind.resize => stdout("new size: " + event.resize.cols.toString())
-///@   stdout(mouseTrackingLeave())
-///@   rawModeLeave()
-///@ AI-SideEffects: ブロッキング呼び出し。stdin + SIGWINCH を poll で多重化。
-///@ AI-Context: raw モード必須。readKey の上位互換。
-
-// ── write ──────────────────────────────────────────────────────
-
-///@ Purpose: stdout に改行なしで即時書き出す（TUI 用）
-///@ Params:
-///@   bytes: Str — 書き出すバイト列（UTF-8）。ANSI エスケープを含んでよい。
-///@ Returns: Int — 書き込んだバイト数
-///@ Throws:
-///@   WriteFailed: write_all / flush が I/O エラーで失敗した場合 (EPIPE 等)
-///@   WriteBuildValue: 戻り値 Int のホスト側確保に失敗した場合
-///@   WritePanic: write path 内で panic が発生した場合（FFI 境界で捕捉）
-///@ Example:
-///@   write("\x1b[2J\x1b[H")          // clear + home cursor
-///@   write(cursorMoveTo(10, 5))      // カーソル移動（改行なし）
-///@   n <= write("hello")             // n == 5
-///@ AI-SideEffects: stdout に即時書き出す（flush 付き）。改行の暗黙追加は行わない。
 
 // ── Prompt / Line Editor facade imports ─────────────────────────
 
