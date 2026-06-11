@@ -22,6 +22,8 @@
 //! operation stored in a global `OnceLock`.
 
 use core::ffi::c_char;
+use core::panic::AssertUnwindSafe;
+use std::panic;
 use std::sync::{Mutex, OnceLock};
 
 use taida_addon::bridge::{HostValueBuilder, borrow_arg};
@@ -29,11 +31,11 @@ use taida_addon::{TaidaAddonErrorV1, TaidaAddonStatus, TaidaAddonValueV1, TaidaH
 
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Console::{
-    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT,
-    ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, GetConsoleMode,
-    GetConsoleScreenBufferInfo, GetStdHandle, INPUT_RECORD, KEY_EVENT, MOUSE_EVENT,
-    ReadConsoleInputW, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleMode,
-    WINDOW_BUFFER_SIZE_EVENT,
+    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
+    ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+    ENABLE_WINDOW_INPUT, GetConsoleMode, GetConsoleScreenBufferInfo, GetStdHandle, INPUT_RECORD,
+    KEY_EVENT, MOUSE_EVENT, ReadConsoleInputW, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
+    STD_OUTPUT_HANDLE, SetConsoleMode, WINDOW_BUFFER_SIZE_EVENT,
 };
 
 // ── VT mode initialization (TM-6a) ─────────────────────────────
@@ -93,8 +95,15 @@ mod key_err {
     pub const READ_KEY_EOF: u32 = 1003;
     #[allow(dead_code)]
     pub const READ_KEY_INTERRUPTED: u32 = 1004;
+    // Historical quirk: 1005 is `ReadKeyRead` here but `ReadKeyPanic`
+    // on unix. Both predate the cross-platform panic barrier; the
+    // numbers stay frozen because they are public surface. New code
+    // discriminates on the error *name*, which is consistent.
     pub const READ_KEY_READ: u32 = 1005;
     pub const READ_KEY_UNSUPPORTED: u32 = 1007;
+    /// `ReadKeyPanic` (unix uses 1006 for InvalidState and 1005 for
+    /// Panic; both are taken here, so the next free slot is used).
+    pub const READ_KEY_PANIC: u32 = 1008;
 }
 
 mod event_err {
@@ -102,6 +111,8 @@ mod event_err {
     pub const READ_EVENT_NOT_A_TTY: u32 = 4002;
     pub const READ_EVENT_READ_FAILED: u32 = 4003;
     pub const READ_EVENT_EOF: u32 = 4004;
+    /// `ReadEventPanic` — same name and code as unix.
+    pub const READ_EVENT_PANIC: u32 = 4006;
 }
 
 // ── Stream helpers ──────────────────────────────────────────────
@@ -388,9 +399,15 @@ pub fn raw_mode_enter_impl(
         return TaidaAddonStatus::Error;
     }
 
+    // ENABLE_WINDOW_INPUT / ENABLE_MOUSE_INPUT: without these flags
+    // ReadConsoleInputW never receives WINDOW_BUFFER_SIZE_EVENT /
+    // MOUSE_EVENT records, leaving readEvent's Resize and Mouse
+    // decode branches unreachable.
     let raw_mode = (current_mode
         & !(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT))
-        | ENABLE_VIRTUAL_TERMINAL_INPUT;
+        | ENABLE_VIRTUAL_TERMINAL_INPUT
+        | ENABLE_WINDOW_INPUT
+        | ENABLE_MOUSE_INPUT;
 
     if unsafe { SetConsoleMode(handle, raw_mode) } == 0 {
         let err = builder.error(
@@ -407,7 +424,15 @@ pub fn raw_mode_enter_impl(
     state.saved_mode = current_mode;
 
     let value = build_raw_mode_state_pack(&builder, true);
-    if !value.is_null() && !out_value.is_null() {
+    if value.is_null() {
+        return emit_error(
+            &builder,
+            out_error,
+            raw_err::RAW_MODE_ENTER_FAILED,
+            "RawModeEnterFailed: failed to build return pack",
+        );
+    }
+    if !out_value.is_null() {
         unsafe { *out_value = value };
     }
     TaidaAddonStatus::Ok
@@ -482,7 +507,15 @@ pub fn raw_mode_leave_impl(
     state.saved_mode = 0;
 
     let value = build_raw_mode_state_pack(&builder, false);
-    if !value.is_null() && !out_value.is_null() {
+    if value.is_null() {
+        return emit_error(
+            &builder,
+            out_error,
+            raw_err::RAW_MODE_LEAVE_FAILED,
+            "RawModeLeaveFailed: failed to build return pack",
+        );
+    }
+    if !out_value.is_null() {
         unsafe { *out_value = value };
     }
     TaidaAddonStatus::Ok
@@ -577,6 +610,44 @@ fn decode_modifiers(ctrl_state: u32) -> (bool, bool, bool) {
 
 // ── ReadKey (TM-6c) ─────────────────────────────────────────────
 
+/// Restores a saved console mode on drop — on success, error, and
+/// panic-unwind paths alike. Mirrors the unix `RawModeGuard` so a
+/// panic inside the read loop can no longer leave the console raw.
+struct ModeRestoreGuard {
+    handle: HANDLE,
+    mode: Option<u32>,
+}
+
+impl Drop for ModeRestoreGuard {
+    fn drop(&mut self) {
+        if let Some(mode) = self.mode {
+            unsafe { SetConsoleMode(self.handle, mode) };
+        }
+    }
+}
+
+/// Convert one UTF-16 code unit from a KEY_EVENT into text, assembling
+/// surrogate pairs that Windows delivers as two consecutive KEY_EVENT
+/// records. Returns `None` while holding a high surrogate — the caller
+/// should continue to the next record. Orphan halves surface as
+/// U+FFFD instead of being dropped silently.
+fn utf16_unit_to_text(unit: u16, pending_high: &mut Option<u16>) -> Option<String> {
+    if (0xD800..=0xDBFF).contains(&unit) {
+        *pending_high = Some(unit);
+        return None;
+    }
+    let text = if (0xDC00..=0xDFFF).contains(&unit) {
+        match pending_high.take() {
+            Some(high) => String::from_utf16_lossy(&[high, unit]),
+            None => String::from_utf16_lossy(&[unit]),
+        }
+    } else {
+        *pending_high = None;
+        String::from_utf16_lossy(&[unit])
+    };
+    Some(text)
+}
+
 pub fn read_key_impl(
     host_ptr: *mut TaidaHostV1,
     _args_len: u32,
@@ -648,13 +719,31 @@ pub fn read_key_impl(
         None
     };
 
-    let result = read_key_event(handle, &builder, out_value, out_error);
+    // RAII restore + catch_unwind: a panic inside the read loop must
+    // neither leave the console raw nor unwind across the extern "C"
+    // dispatcher (which aborts the process). Mirrors the unix entry.
+    let _restore = ModeRestoreGuard {
+        handle,
+        mode: saved_mode,
+    };
 
-    if let Some(mode) = saved_mode {
-        unsafe { SetConsoleMode(handle, mode) };
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        read_key_event(handle, &builder, out_value, out_error)
+    }));
+
+    match result {
+        Ok(status) => status,
+        Err(_) => {
+            let err = builder.error(
+                key_err::READ_KEY_PANIC,
+                "ReadKeyPanic: read_key panicked (caught at FFI boundary)",
+            );
+            if !out_error.is_null() {
+                unsafe { *out_error = err };
+            }
+            TaidaAddonStatus::Error
+        }
     }
-
-    result
 }
 
 fn read_key_event(
@@ -663,6 +752,7 @@ fn read_key_event(
     out_value: *mut *mut TaidaAddonValueV1,
     out_error: *mut *mut TaidaAddonErrorV1,
 ) -> TaidaAddonStatus {
+    let mut pending_high: Option<u16> = None;
     loop {
         let mut record: INPUT_RECORD = unsafe { core::mem::zeroed() };
         let mut count: u32 = 0;
@@ -701,7 +791,12 @@ fn read_key_event(
 
         let kind = vk_to_key_kind(vk);
         let text = if (kind == key_kind::CHAR || kind == key_kind::UNKNOWN) && ch != 0 {
-            String::from_utf16(&[ch]).unwrap_or_default()
+            match utf16_unit_to_text(ch, &mut pending_high) {
+                Some(t) => t,
+                // High surrogate stashed — the low half arrives as the
+                // next KEY_EVENT record.
+                None => continue,
+            }
         } else {
             String::new()
         };
@@ -712,7 +807,9 @@ fn read_key_event(
             kind
         };
 
-        return build_key_pack(builder, final_kind, &text, ctrl, alt, shift, out_value);
+        return build_key_pack(
+            builder, final_kind, &text, ctrl, alt, shift, out_value, out_error,
+        );
     }
 }
 
@@ -724,12 +821,27 @@ fn build_key_pack(
     alt: bool,
     shift: bool,
     out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
 ) -> TaidaAddonStatus {
     let kind_v = builder.int(kind);
     let text_v = builder.str(text);
     let ctrl_v = builder.bool(ctrl);
     let alt_v = builder.bool(alt);
     let shift_v = builder.bool(shift);
+
+    // Match the unix contract: an allocation failure surfaces as a
+    // deterministic addon error, never as `Ok` without an out_value
+    // (which the host folds into a generic InvalidReturn).
+    let children = [kind_v, text_v, ctrl_v, alt_v, shift_v];
+    if children.iter().any(|v| v.is_null()) {
+        release_values(builder, &children);
+        return emit_error(
+            builder,
+            out_error,
+            key_err::READ_KEY_RAW_MODE,
+            "ReadKeyRawMode: failed to build return pack",
+        );
+    }
 
     let names: [*const c_char; 5] = [
         c"kind".as_ptr(),
@@ -738,12 +850,45 @@ fn build_key_pack(
         c"alt".as_ptr(),
         c"shift".as_ptr(),
     ];
-    let values: [*mut TaidaAddonValueV1; 5] = [kind_v, text_v, ctrl_v, alt_v, shift_v];
-    let value = builder.pack(&names, &values);
-    if !value.is_null() && !out_value.is_null() {
+    let value = builder.pack(&names, &children);
+    if value.is_null() {
+        return emit_error(
+            builder,
+            out_error,
+            key_err::READ_KEY_RAW_MODE,
+            "ReadKeyRawMode: failed to build return pack",
+        );
+    }
+    if !out_value.is_null() {
         unsafe { *out_value = value };
     }
     TaidaAddonStatus::Ok
+}
+
+/// Release any non-null values after a partial pack-construction
+/// failure so they do not leak host-side allocations.
+fn release_values(builder: &HostValueBuilder<'_>, values: &[*mut TaidaAddonValueV1]) {
+    let host = builder.as_raw();
+    for &v in values {
+        if !v.is_null() {
+            unsafe { ((*host).value_release)(host, v) };
+        }
+    }
+}
+
+/// Emit a deterministic addon error (shared shape with the unix
+/// entries).
+fn emit_error(
+    builder: &HostValueBuilder<'_>,
+    out_error: *mut *mut TaidaAddonErrorV1,
+    code: u32,
+    message: &str,
+) -> TaidaAddonStatus {
+    let err = builder.error(code, message);
+    if !out_error.is_null() {
+        unsafe { *out_error = err };
+    }
+    TaidaAddonStatus::Error
 }
 
 // ── EventKind / MouseKind constants ─────────────────────────────
@@ -807,6 +952,31 @@ pub fn read_event_impl(
         }
     };
 
+    // catch_unwind mirrors the unix entry: a panic in the decode loop
+    // must surface as ReadEventPanic, not unwind across the
+    // extern "C" dispatcher (process abort).
+    let result = panic::catch_unwind(AssertUnwindSafe(|| {
+        read_event_loop(handle, &builder, out_value, out_error)
+    }));
+
+    match result {
+        Ok(status) => status,
+        Err(_) => emit_error(
+            &builder,
+            out_error,
+            event_err::READ_EVENT_PANIC,
+            "ReadEventPanic: read_event panicked (caught at FFI boundary)",
+        ),
+    }
+}
+
+fn read_event_loop(
+    handle: HANDLE,
+    builder: &HostValueBuilder<'_>,
+    out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
+) -> TaidaAddonStatus {
+    let mut pending_high: Option<u16> = None;
     loop {
         let mut record: INPUT_RECORD = unsafe { core::mem::zeroed() };
         let mut count: u32 = 0;
@@ -846,7 +1016,12 @@ pub fn read_event_impl(
 
                 let kind = vk_to_key_kind(vk);
                 let text = if (kind == key_kind::CHAR || kind == key_kind::UNKNOWN) && ch != 0 {
-                    String::from_utf16(&[ch]).unwrap_or_default()
+                    match utf16_unit_to_text(ch, &mut pending_high) {
+                        Some(t) => t,
+                        // High surrogate stashed — the low half arrives
+                        // as the next KEY_EVENT record.
+                        None => continue,
+                    }
                 } else {
                     String::new()
                 };
@@ -857,17 +1032,18 @@ pub fn read_event_impl(
                     kind
                 };
 
-                let key_sub = build_key_subpack(&builder, final_kind, &text, ctrl, alt, shift);
-                let mouse_sub = build_default_mouse_subpack(&builder);
-                let resize_sub = build_default_resize_subpack(&builder);
+                let key_sub = build_key_subpack(builder, final_kind, &text, ctrl, alt, shift);
+                let mouse_sub = build_default_mouse_subpack(builder);
+                let resize_sub = build_default_resize_subpack(builder);
 
                 return build_event_pack(
-                    &builder,
+                    builder,
                     event_kind::KEY,
                     key_sub,
                     mouse_sub,
                     resize_sub,
                     out_value,
+                    out_error,
                 );
             }
             MOUSE_EVENT => {
@@ -906,18 +1082,19 @@ pub fn read_event_impl(
                 let col = (pos.X + 1) as i64;
                 let row = (pos.Y + 1) as i64;
 
-                let key_sub = build_default_key_subpack(&builder);
+                let key_sub = build_default_key_subpack(builder);
                 let mouse_sub =
-                    build_mouse_subpack(&builder, mk, col, row, button, ctrl, alt, shift);
-                let resize_sub = build_default_resize_subpack(&builder);
+                    build_mouse_subpack(builder, mk, col, row, button, ctrl, alt, shift);
+                let resize_sub = build_default_resize_subpack(builder);
 
                 return build_event_pack(
-                    &builder,
+                    builder,
                     event_kind::MOUSE,
                     key_sub,
                     mouse_sub,
                     resize_sub,
                     out_value,
+                    out_error,
                 );
             }
             WINDOW_BUFFER_SIZE_EVENT => {
@@ -925,17 +1102,18 @@ pub fn read_event_impl(
                 let cols = size_event.dwSize.X as i64;
                 let rows = size_event.dwSize.Y as i64;
 
-                let key_sub = build_default_key_subpack(&builder);
-                let mouse_sub = build_default_mouse_subpack(&builder);
-                let resize_sub = build_resize_subpack(&builder, cols, rows);
+                let key_sub = build_default_key_subpack(builder);
+                let mouse_sub = build_default_mouse_subpack(builder);
+                let resize_sub = build_resize_subpack(builder, cols, rows);
 
                 return build_event_pack(
-                    &builder,
+                    builder,
                     event_kind::RESIZE,
                     key_sub,
                     mouse_sub,
                     resize_sub,
                     out_value,
+                    out_error,
                 );
             }
             _ => continue,
@@ -1030,16 +1208,36 @@ fn build_event_pack(
     mouse_sub: *mut TaidaAddonValueV1,
     resize_sub: *mut TaidaAddonValueV1,
     out_value: *mut *mut TaidaAddonValueV1,
+    out_error: *mut *mut TaidaAddonErrorV1,
 ) -> TaidaAddonStatus {
+    let values: [*mut TaidaAddonValueV1; 4] = [builder.int(kind), key_sub, mouse_sub, resize_sub];
+    // Match the unix contract: allocation failure is a deterministic
+    // addon error, never `Ok` without an out_value.
+    if values.iter().any(|v| v.is_null()) {
+        release_values(builder, &values);
+        return emit_error(
+            builder,
+            out_error,
+            event_err::READ_EVENT_READ_FAILED,
+            "ReadEventReadFailed: failed to build return pack",
+        );
+    }
     let names: [*const c_char; 4] = [
         c"kind".as_ptr(),
         c"key".as_ptr(),
         c"mouse".as_ptr(),
         c"resize".as_ptr(),
     ];
-    let values: [*mut TaidaAddonValueV1; 4] = [builder.int(kind), key_sub, mouse_sub, resize_sub];
     let value = builder.pack(&names, &values);
-    if !value.is_null() && !out_value.is_null() {
+    if value.is_null() {
+        return emit_error(
+            builder,
+            out_error,
+            event_err::READ_EVENT_READ_FAILED,
+            "ReadEventReadFailed: failed to build return pack",
+        );
+    }
+    if !out_value.is_null() {
         unsafe { *out_value = value };
     }
     TaidaAddonStatus::Ok

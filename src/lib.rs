@@ -1280,9 +1280,10 @@ mod tests {
             "ReadEventInterrupted",
             "ReadEventPanic",
             "ReadEventResizeInitFailed",
-            // Windows-only (capability init)
+            // Windows-only (capability init / console read)
             "TerminalSizeUnsupported",
             "ReadKeyUnsupported",
+            "ReadKeyRead",
             // Write (TMB-016)
             "WriteFailed",
             "WriteBuildValue",
@@ -1310,6 +1311,6 @@ mod tests {
             );
         }
         // Count is the contract — adding a new error must update this.
-        assert_eq!(expected.len(), 35);
+        assert_eq!(expected.len(), 36);
     }
 }
