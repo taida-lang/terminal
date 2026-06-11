@@ -2,15 +2,33 @@
 
 Taida Lang official terminal package — TTY detection, size query, key / event input, raw mode, screen / cursor control, ANSI styling (16 / 256 / RGB), Unicode width, virtual buffer with diff renderer, line editor, and UX widgets.
 
-- **Release**: `@f.8`
+- **Release**: `@f.9`
 - **Backend**: Native-only addon (Rust `cdylib` + Taida facade). The interpreter dispatches to the cdylib through addon ABI v1.
 - **Exports**: 61 public symbols (see below).
 
 ## Install
 
-```bash
-taida install taida-lang/terminal
+Declare the dependency in your project's `packages.tdm` with the release
+version and the SHA-256 of its source archive:
+
+```toml
+[packages."taida-lang/terminal"]
+version = "f.9"
+integrity = "sha256:af24f2966042e61397b90c7311b2edb0904e2abb1d303e36e4b6dda977358c24"
 ```
+
+Then install:
+
+```bash
+taida ingot install
+```
+
+The `integrity` value is the SHA-256 of
+`https://github.com/taida-lang/terminal/archive/refs/tags/f.9.tar.gz`
+(compute it with `curl -sL <url> | sha256sum` to verify independently).
+The native cdylib for your platform is fetched from the GitHub release
+for the same tag and verified against the published SHA-256 digests
+automatically.
 
 ## Usage
 
