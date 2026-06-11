@@ -1706,14 +1706,6 @@ ctrl/alt/shift 修飾キーは別フィールド (key.ctrl 等) で表現する�
 
 **Returns**: EventKind ぶちパック (4 variant)
 
-**Throws**:
-- RendererInvalidSize — cols < 1 または rows < 1
-- RendererInvalidSize — cols < 1 または rows < 1
-- RendererOutOfBounds — col<1 / row<1 / col>cols / row>rows
-- RendererOutOfBounds — 開始位置が範囲外
-- RendererOutOfBounds — col<1 / row<1。width<1 / height<1 は no-op。
-- RendererOutOfBounds — col<1 / row<1
-
 **Example**:
 
 ```taida
@@ -1724,7 +1716,6 @@ event.kind |== EventKind.resize => stdout("Resize event: " + event.resize.cols.t
 ```
 
 **AI-Context**:
-native 実装では `vec![default; cols*rows]` で一括確保。
 readEvent の戻り値 `kind` フィールドと比較して使う。
 v1 ABI で凍結 (Int tag 不変)。
 variant は snake_case。

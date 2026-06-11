@@ -472,8 +472,8 @@ dependencies = [
 
 [[package]]
 name = "taida-addon"
-version = "2.0.0"
-source = "git+https://github.com/taida-lang/taida.git#cfe0fdcd582b4a54b77f04fa727470e08194a2f5"
+version = "2.1.0"
+source = "git+https://github.com/taida-lang/taida.git#47e97f560bec54164c103fc6b3472d5a63b1f3ef"
 
 [[package]]
 name = "taida-lang-terminal"

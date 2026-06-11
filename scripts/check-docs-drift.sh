@@ -14,13 +14,17 @@
 #   1 - drift detected (diff printed to stdout)
 #   2 - taida CLI not found (CI environment misconfigured)
 #
-# This script assumes `taida` is already on PATH (the smoke job's
-# `cargo install` step puts it there).
+# Binary selection mirrors scripts/smoke-test.sh: `TAIDA` overrides,
+# otherwise `taida` from PATH (the smoke job's `cargo install` step
+# puts it there). Local runs against a stale globally-installed taida
+# misreport drift, so always pass TAIDA when validating locally.
 
 set -euo pipefail
 
-if ! command -v taida >/dev/null 2>&1; then
-  echo "::error::taida CLI not found on PATH. Install it via cargo first." >&2
+TAIDA="${TAIDA:-taida}"
+
+if ! command -v "$TAIDA" >/dev/null 2>&1; then
+  echo "::error::taida CLI not found ($TAIDA). Install it via cargo first or set TAIDA." >&2
   exit 2
 fi
 
@@ -37,7 +41,7 @@ if [[ ! -f "$EXPECTED" ]]; then
 fi
 
 # Generate fresh markdown from current taida/*.td sources
-taida doc generate ./taida >"$ACTUAL"
+"$TAIDA" doc generate ./taida >"$ACTUAL"
 
 if diff -u "$EXPECTED" "$ACTUAL"; then
   echo "docs/api.md is up to date with taida/*.td"

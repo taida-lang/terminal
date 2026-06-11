@@ -563,49 +563,97 @@ fn read_one_key_native(fd: i32) -> ReadOutcome {
 
     let mut len = n as usize;
 
-    // If the first byte is ESC, drain any pending follow-up bytes
-    // with a 50 ms poll. We use `poll` rather than VTIME so we don't
-    // change the termios after the first byte.
+    // If the first byte is ESC, assemble exactly *one* escape
+    // sequence, stopping at its structural end — the same framing
+    // `event::read_stdin_event` uses (TMB-009).
+    //
+    // The previous code drained greedily until the 50 ms poll lapsed.
+    // Key auto-repeat (typically ~33 ms) beats that timeout, so a
+    // held arrow key concatenated several sequences into one buffer;
+    // `decode` interprets only the first and silently dropped the
+    // rest. Worse, the 16-byte cap could split a sequence so its tail
+    // surfaced as garbage `Char('[')` / `Char('A')` events on later
+    // calls.
     if buf[0] == 0x1B {
-        while len < buf.len() {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let p = unsafe { libc::poll(&mut pfd, 1, 50) };
-            if p <= 0 {
-                break;
-            }
-            let n = unsafe { libc::read(fd, buf.as_mut_ptr().add(len) as *mut _, 1) };
-            if n <= 0 {
-                break;
-            }
-            len += n as usize;
+        // One byte to distinguish a lone ESC from a sequence prefix.
+        if let Some(b) = poll_read_one(fd) {
+            buf[len] = b;
+            len += 1;
         }
+        if len >= 2 && buf[1] == b'[' {
+            // CSI: read until the final byte (0x40..=0x7E), which can
+            // only appear at position >= 2 (covers `ESC [ 1 ; 5 A`
+            // modifier forms and SGR mouse `ESC [ < ... M/m`).
+            while len < buf.len() {
+                let last = buf[len - 1];
+                if len >= 3 && (0x40..=0x7E).contains(&last) {
+                    break;
+                }
+                match poll_read_one(fd) {
+                    Some(b) => {
+                        buf[len] = b;
+                        len += 1;
+                    }
+                    None => break,
+                }
+            }
+        } else if len >= 2 && buf[1] == b'O' {
+            // SS3: exactly one more byte (e.g. `ESC O P` for F1).
+            if len == 2
+                && let Some(b) = poll_read_one(fd)
+            {
+                buf[len] = b;
+                len += 1;
+            }
+        } else if len >= 2 && buf[1] >= 0x80 {
+            // Alt + multi-byte UTF-8: pull the continuation bytes so
+            // the character is not split across reads. (`decode`
+            // reports this as Unknown, but as *one* event.)
+            let expect = utf8_continuation_count(buf[1]);
+            let target = (2 + expect).min(buf.len());
+            while len < target {
+                match poll_read_one(fd) {
+                    Some(b) => {
+                        buf[len] = b;
+                        len += 1;
+                    }
+                    None => break,
+                }
+            }
+        }
+        // Anything else after ESC is a complete 2-byte Alt+key form.
     } else if buf[0] >= 0x80 {
         // Multi-byte UTF-8 leading byte: pull the continuation bytes.
         let expect = utf8_continuation_count(buf[0]);
         let target = (1 + expect).min(buf.len());
         while len < target {
-            let mut pfd = libc::pollfd {
-                fd,
-                events: libc::POLLIN,
-                revents: 0,
-            };
-            let p = unsafe { libc::poll(&mut pfd, 1, 50) };
-            if p <= 0 {
-                break;
+            match poll_read_one(fd) {
+                Some(b) => {
+                    buf[len] = b;
+                    len += 1;
+                }
+                None => break,
             }
-            let n = unsafe { libc::read(fd, buf.as_mut_ptr().add(len) as *mut _, 1) };
-            if n <= 0 {
-                break;
-            }
-            len += n as usize;
         }
     }
 
     ReadOutcome::Decoded(decode(&buf[..len]))
+}
+
+/// Poll `fd` for up to 50 ms and read exactly one byte.
+fn poll_read_one(fd: i32) -> Option<u8> {
+    let mut pfd = libc::pollfd {
+        fd,
+        events: libc::POLLIN,
+        revents: 0,
+    };
+    let p = unsafe { libc::poll(&mut pfd, 1, 50) };
+    if p <= 0 {
+        return None;
+    }
+    let mut b: u8 = 0;
+    let n = unsafe { libc::read(fd, &mut b as *mut u8 as *mut _, 1) };
+    if n <= 0 { None } else { Some(b) }
 }
 
 fn utf8_continuation_count(b: u8) -> usize {
@@ -1283,6 +1331,112 @@ mod tests {
         unsafe {
             libc::close(slave);
             libc::close(master);
+        }
+    }
+}
+
+#[cfg(test)]
+mod framing_tests {
+    use super::*;
+
+    fn pipe_with(payload: &[u8]) -> (i32, i32) {
+        let mut fds = [0i32; 2];
+        assert_eq!(unsafe { libc::pipe(fds.as_mut_ptr()) }, 0, "pipe(2)");
+        let written = unsafe { libc::write(fds[1], payload.as_ptr() as *const _, payload.len()) };
+        assert_eq!(written, payload.len() as isize, "write payload");
+        (fds[0], fds[1])
+    }
+
+    fn expect_decoded(outcome: ReadOutcome) -> DecodedKey {
+        match outcome {
+            ReadOutcome::Decoded(k) => k,
+            ReadOutcome::Eof => panic!("unexpected Eof"),
+            ReadOutcome::Interrupted => panic!("unexpected Interrupted"),
+            ReadOutcome::Io(e) => panic!("unexpected Io({e})"),
+        }
+    }
+
+    /// Key auto-repeat regression: two complete arrow sequences are
+    /// already buffered when the first read starts. The old greedy
+    /// drain (stop only on poll timeout) concatenated both into one
+    /// buffer, decoded only the first, and silently dropped the
+    /// second. Sequence-structure framing must deliver both.
+    #[test]
+    fn read_one_key_delivers_repeated_sequences_one_by_one() {
+        let (rfd, wfd) = pipe_with(b"\x1b[A\x1b[B");
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::ArrowUp);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::ArrowDown);
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    /// A modifier CSI form must still be assembled completely, and a
+    /// trailing plain byte must surface as its own event instead of
+    /// being swallowed with the sequence.
+    #[test]
+    fn read_one_key_stops_at_csi_final_byte_before_following_input() {
+        let (rfd, wfd) = pipe_with(b"\x1b[1;5Ax");
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::ArrowUp);
+        assert!(first.ctrl, "xterm modifier 5 = ctrl");
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "x");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    /// SS3 function keys are exactly three bytes; the byte after them
+    /// belongs to the next event.
+    #[test]
+    fn read_one_key_stops_after_ss3_sequence() {
+        let (rfd, wfd) = pipe_with(b"\x1bOPq");
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::F1);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "q");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    /// 16-byte-cap regression: five-plus repeats used to cut the 6th
+    /// sequence mid-way, leaving `[`/`A` bytes to surface as garbage
+    /// Char events. With framing, every sequence decodes cleanly.
+    #[test]
+    fn read_one_key_survives_a_long_repeat_burst() {
+        let (rfd, wfd) = pipe_with(b"\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A\x1b[A");
+        for i in 0..6 {
+            let k = expect_decoded(read_one_key_native(rfd));
+            assert_eq!(k.kind, KeyKind::ArrowUp, "repeat #{i} must decode");
+        }
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    /// Alt + multi-byte UTF-8 stays one (Unknown) event; the
+    /// continuation bytes must not leak into the next read.
+    #[test]
+    fn read_one_key_keeps_alt_utf8_in_one_event() {
+        let (rfd, wfd) = pipe_with("\u{1b}éz".as_bytes());
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::Unknown);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "z");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
         }
     }
 }
