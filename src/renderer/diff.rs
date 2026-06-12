@@ -189,15 +189,45 @@ pub fn render_full(buf: &BufferState) -> String {
     out.push_str(ANSI_CURSOR_HIDE);
     for r in 1..=buf.rows {
         cursor_move_to(&mut out, 1, r);
+        // Contiguous same-style cells render as ONE styled run (one
+        // SGR + one reset) instead of per-cell SGR pairs — a fully
+        // styled screen used to cost ~9x the bytes. A wide lead's
+        // trailing placeholder is skipped entirely: the glyph itself
+        // advances the terminal cursor by two columns, so emitting
+        // the placeholder space pushed every later cell in the row
+        // one column to the right.
+        let mut run_text = String::new();
+        let mut run_style: Option<&CellStyle> = None;
+        let mut skip_placeholder = false;
         for c in 1..=buf.cols {
             let idx = ((r - 1) * buf.cols + (c - 1)) as usize;
             let cell = &buf.cells[idx];
+            if skip_placeholder {
+                skip_placeholder = false;
+                continue;
+            }
+            if crate::renderer::ops::cell_is_wide_lead(&cell.text) {
+                skip_placeholder = true;
+            }
             let text: &str = if cell.text.is_empty() {
                 " "
             } else {
                 cell.text.as_str()
             };
-            write_styled(&mut out, text, &cell.style);
+            match run_style {
+                Some(s) if *s == cell.style => run_text.push_str(text),
+                _ => {
+                    if let Some(s) = run_style {
+                        write_styled(&mut out, &run_text, s);
+                    }
+                    run_text.clear();
+                    run_text.push_str(text);
+                    run_style = Some(&cell.style);
+                }
+            }
+        }
+        if let Some(s) = run_style {
+            write_styled(&mut out, &run_text, s);
         }
     }
     cursor_move_to(&mut out, buf.cursor_col, buf.cursor_row);
@@ -239,9 +269,17 @@ fn cells_equal(a: &Cell, b: &Cell) -> bool {
     a.text == b.text && a.style == b.style
 }
 
-/// Walk one row of a same-size buffer pair and append a `Write` op
-/// per differing cell. `row_idx` is the **0-based** row index;
+/// Walk one row of a same-size buffer pair and append `Write` ops for
+/// the differing cells. `row_idx` is the **0-based** row index;
 /// emitted ops use the 1-based `row` value.
+///
+/// Contiguous differing cells that share one style coalesce into a
+/// single `Write` op (one cursor move + one SGR pair on render). A
+/// wide lead and its trailing placeholder diff as a unit, and the op
+/// carries the lead glyph only: the glyph covers both columns on the
+/// terminal, and an independent placeholder `Write` would overwrite
+/// the glyph's right half (or, inside a run, shift later text one
+/// column to the right).
 #[inline]
 fn diff_row(
     prev: &BufferState,
@@ -255,16 +293,49 @@ fn diff_row(
     let prev_row = &prev.cells[start..end];
     let next_row = &next.cells[start..end];
     let row = row_idx_zero + 1;
-    for c_idx in 0..cols as usize {
-        if !cells_equal(&prev_row[c_idx], &next_row[c_idx]) {
-            ops.push(DiffOp {
-                kind: diff_kind::WRITE,
-                col: c_idx as i64 + 1,
-                row,
-                text: next_row[c_idx].text.clone(),
-                style: next_row[c_idx].style.clone(),
-            });
+    let cols_u = cols as usize;
+    // One step = one terminal-visible unit: a narrow cell, or a wide
+    // lead together with its placeholder cell.
+    let unit_at = |c_idx: usize| -> usize {
+        if crate::renderer::ops::cell_is_wide_lead(&next_row[c_idx].text) && c_idx + 1 < cols_u {
+            2
+        } else {
+            1
         }
+    };
+    let unit_differs = |c_idx: usize, unit: usize| -> bool {
+        (0..unit).any(|k| !cells_equal(&prev_row[c_idx + k], &next_row[c_idx + k]))
+    };
+    let mut c_idx = 0usize;
+    while c_idx < cols_u {
+        let unit = unit_at(c_idx);
+        if !unit_differs(c_idx, unit) {
+            c_idx += unit;
+            continue;
+        }
+        let run_col = c_idx as i64 + 1;
+        let style = next_row[c_idx].style.clone();
+        let mut text = String::new();
+        while c_idx < cols_u {
+            let unit = unit_at(c_idx);
+            if !unit_differs(c_idx, unit) || next_row[c_idx].style != style {
+                break;
+            }
+            let cell_text: &str = if next_row[c_idx].text.is_empty() {
+                " "
+            } else {
+                next_row[c_idx].text.as_str()
+            };
+            text.push_str(cell_text);
+            c_idx += unit;
+        }
+        ops.push(DiffOp {
+            kind: diff_kind::WRITE,
+            col: run_col,
+            row,
+            text,
+            style,
+        });
     }
 }
 
@@ -298,23 +369,14 @@ pub fn diff_buffers(prev: &BufferState, next: &BufferState) -> (Vec<DiffOp>, boo
             }
         }
         _ => {
-            // Slow path: no fingerprints available, walk every cell.
-            // Functionally equivalent to the row-hash branch above —
-            // kept so test buffers built without `compute_row_hashes`
+            // Slow path: no fingerprints available, walk every row
+            // through the same `diff_row` the fast path uses — one
+            // shared implementation so run coalescing and the
+            // wide-pair unit rule cannot diverge between the paths.
+            // Kept so test buffers built without `compute_row_hashes`
             // still produce correct diffs.
-            let total = (cols * rows) as usize;
-            for idx in 0..total {
-                if !cells_equal(&prev.cells[idx], &next.cells[idx]) {
-                    let row = (idx as i64) / cols + 1;
-                    let col = (idx as i64) % cols + 1;
-                    ops.push(DiffOp {
-                        kind: diff_kind::WRITE,
-                        col,
-                        row,
-                        text: next.cells[idx].text.clone(),
-                        style: next.cells[idx].style.clone(),
-                    });
-                }
+            for r_idx in 0..rows {
+                diff_row(prev, next, r_idx, cols, &mut ops);
             }
         }
     }
@@ -992,5 +1054,146 @@ mod tests {
         assert!(!requires_full);
         assert_eq!(ops.len(), 1);
         assert_eq!(ops[0].text, "X");
+    }
+
+    // ── SGR run coalescing + wide-placeholder suppression ─────────
+
+    fn yellow_bold() -> CellStyle {
+        let mut s = CellStyle::empty();
+        s.fg = "yellow".to_string();
+        s.bold = true;
+        s
+    }
+
+    fn put_text(buf: &mut BufferState, idx: usize, text: &str, style: &CellStyle) {
+        buf.cells[idx] = Cell {
+            text: text.to_string(),
+            style: style.clone(),
+        };
+    }
+
+    #[test]
+    fn render_full_coalesces_same_style_run_into_one_sgr_pair() {
+        let mut buf = make_buf(5, 1);
+        let style = yellow_bold();
+        for (i, ch) in ["H", "E", "L", "L", "O"].iter().enumerate() {
+            put_text(&mut buf, i, ch, &style);
+        }
+        let out = render_full(&buf);
+        // One SGR + the whole run + one reset — not per-cell pairs.
+        let expected = "\x1b[?25l\x1b[1;1H\x1b[1;33mHELLO\x1b[0m\x1b[1;1H\x1b[?25h";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn render_full_splits_runs_on_style_change() {
+        let mut buf = make_buf(4, 1);
+        let style = yellow_bold();
+        put_text(&mut buf, 0, "a", &style);
+        put_text(&mut buf, 1, "b", &style);
+        // cells 2..3 stay default (unstyled spaces)
+        let out = render_full(&buf);
+        let expected = "\x1b[?25l\x1b[1;1H\x1b[1;33mab\x1b[0m  \x1b[1;1H\x1b[?25h";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn render_full_skips_wide_placeholder_cell() {
+        // "漢" occupies cells 0 (lead) + 1 (styled-space placeholder).
+        // The glyph alone advances the terminal cursor two columns, so
+        // the placeholder must NOT be emitted — emitting it pushed the
+        // rest of the row one column to the right.
+        let mut buf = make_buf(4, 1);
+        let style = CellStyle::empty();
+        put_text(&mut buf, 0, "漢", &style);
+        put_text(&mut buf, 1, " ", &style); // placeholder, as write_text stores it
+        put_text(&mut buf, 2, "a", &style);
+        put_text(&mut buf, 3, "b", &style);
+        let out = render_full(&buf);
+        let expected = "\x1b[?25l\x1b[1;1H漢ab\x1b[1;1H\x1b[?25h";
+        assert_eq!(out, expected);
+    }
+
+    #[test]
+    fn diff_adjacent_same_style_changes_coalesce_into_one_op() {
+        let prev = make_buf(5, 1);
+        let mut next = make_buf(5, 1);
+        let style = yellow_bold();
+        put_text(&mut next, 1, "a", &style);
+        put_text(&mut next, 2, "b", &style);
+        put_text(&mut next, 3, "c", &style);
+        let (ops, requires_full) = diff_buffers(&prev, &next);
+        assert!(!requires_full);
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].kind, diff_kind::WRITE);
+        assert_eq!(ops[0].col, 2);
+        assert_eq!(ops[0].row, 1);
+        assert_eq!(ops[0].text, "abc");
+        assert_eq!(ops[0].style, style);
+    }
+
+    #[test]
+    fn diff_run_splits_on_style_change() {
+        let prev = make_buf(4, 1);
+        let mut next = make_buf(4, 1);
+        let styled = yellow_bold();
+        put_text(&mut next, 0, "a", &styled);
+        put_text(&mut next, 1, "b", &CellStyle::empty());
+        let (ops, _) = diff_buffers(&prev, &next);
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].text, "a");
+        assert_eq!(ops[0].style, styled);
+        assert_eq!(ops[1].text, "b");
+        assert_eq!(ops[1].col, 2);
+    }
+
+    #[test]
+    fn diff_run_splits_on_unchanged_gap() {
+        let prev = make_buf(5, 1);
+        let mut next = make_buf(5, 1);
+        let style = CellStyle::empty();
+        put_text(&mut next, 0, "a", &style);
+        // cell 1 unchanged
+        put_text(&mut next, 2, "b", &style);
+        let (ops, _) = diff_buffers(&prev, &next);
+        assert_eq!(ops.len(), 2);
+        assert_eq!(ops[0].col, 1);
+        assert_eq!(ops[0].text, "a");
+        assert_eq!(ops[1].col, 3);
+        assert_eq!(ops[1].text, "b");
+    }
+
+    #[test]
+    fn diff_wide_pair_is_one_unit_and_carries_lead_only() {
+        let prev = make_buf(4, 1);
+        let mut next = make_buf(4, 1);
+        let style = CellStyle::empty();
+        put_text(&mut next, 0, "漢", &style);
+        put_text(&mut next, 1, " ", &style); // placeholder
+        let (ops, _) = diff_buffers(&prev, &next);
+        // The placeholder cell also differs from prev's default-space?
+        // No — prev cell 1 is a plain space with the same (empty)
+        // style, so only the lead differs; either way the op must
+        // carry the lead glyph alone (the glyph paints both columns).
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].col, 1);
+        assert_eq!(ops[0].text, "漢");
+    }
+
+    #[test]
+    fn diff_wide_pair_followed_by_narrow_changes_coalesces_without_placeholder() {
+        let prev = make_buf(4, 1);
+        let mut next = make_buf(4, 1);
+        let style = yellow_bold();
+        put_text(&mut next, 0, "漢", &style);
+        put_text(&mut next, 1, " ", &style); // placeholder (styled)
+        put_text(&mut next, 2, "a", &style);
+        put_text(&mut next, 3, "b", &style);
+        let (ops, _) = diff_buffers(&prev, &next);
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].col, 1);
+        // Lead + the following narrows, WITHOUT the placeholder space:
+        // "漢" itself advances the cursor over column 2.
+        assert_eq!(ops[0].text, "漢ab");
     }
 }

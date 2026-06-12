@@ -324,12 +324,36 @@ fn decode_single_byte(b: u8) -> DecodedKey {
         b'\t' => DecodedKey::plain(KeyKind::Tab),
         0x7F | 0x08 => DecodedKey::plain(KeyKind::Backspace),
         0x1B => DecodedKey::plain(KeyKind::Escape),
+        // NUL is what the terminal sends for Ctrl+Space (and Ctrl+@).
+        // Map it to the space character with `ctrl = true` so it is
+        // detectable like every other Ctrl chord.
+        0x00 => DecodedKey {
+            kind: KeyKind::Char,
+            text: " ".to_string(),
+            ctrl: true,
+            alt: false,
+            shift: false,
+        },
         // C0 control range — Ctrl+letter. We map them to Char with the
         // canonical letter and `ctrl = true` so users can detect e.g.
         // Ctrl-C without parsing the byte themselves.
         0x01..=0x1A => {
             let mut text = String::new();
             text.push((b - 1 + b'a') as char);
+            DecodedKey {
+                kind: KeyKind::Char,
+                text,
+                ctrl: true,
+                alt: false,
+                shift: false,
+            }
+        }
+        // The C0 bytes above the letter range are the Ctrl+punctuation
+        // chords: FS/GS/RS/US = Ctrl+\\ Ctrl+] Ctrl+^ Ctrl+_ (their
+        // codepoints sit exactly 0x40 below the punctuation).
+        0x1C..=0x1F => {
+            let mut text = String::new();
+            text.push((b + 0x40) as char);
             DecodedKey {
                 kind: KeyKind::Char,
                 text,
@@ -371,6 +395,15 @@ fn decode_escape(buf: &[u8]) -> DecodedKey {
     match buf[1] {
         b'[' => decode_csi(buf),
         b'O' => decode_ss3(buf),
+        // ESC ESC — an Alt-prefixed sequence. Many terminals send
+        // Alt+Arrow (and friends) as a second ESC in front of the
+        // whole sequence; decode the inner sequence and overlay the
+        // alt flag. A bare ESC ESC pair decodes as Alt+Escape.
+        0x1B => {
+            let mut inner = decode(&buf[1..]);
+            inner.alt = true;
+            inner
+        }
         // ESC + printable byte → Alt + that byte (Char with alt=true).
         c if (0x20..=0x7E).contains(&c) => {
             let mut text = String::new();
@@ -580,13 +613,27 @@ fn read_one_key_native(fd: i32) -> ReadOutcome {
             buf[len] = b;
             len += 1;
         }
-        if len >= 2 && buf[1] == b'[' {
+        // Alt-prefixed sequence: terminals send Alt+Arrow as a second
+        // ESC in front of the whole sequence (`ESC ESC [ A`). Shift
+        // the framing origin so the inner sequence is assembled below
+        // exactly like an unprefixed one — without this the pair
+        // decoded as Unknown and the tail surfaced as garbage
+        // `Char('[')` / `Char('A')` events on later calls.
+        let mut seq = 1usize;
+        if len == 2 && buf[1] == 0x1B {
+            if let Some(b) = poll_read_one(fd) {
+                buf[len] = b;
+                len += 1;
+            }
+            seq = 2;
+        }
+        if len > seq && buf[seq] == b'[' {
             // CSI: read until the final byte (0x40..=0x7E), which can
-            // only appear at position >= 2 (covers `ESC [ 1 ; 5 A`
+            // only appear past the introducer (covers `ESC [ 1 ; 5 A`
             // modifier forms and SGR mouse `ESC [ < ... M/m`).
             while len < buf.len() {
                 let last = buf[len - 1];
-                if len >= 3 && (0x40..=0x7E).contains(&last) {
+                if len >= seq + 2 && (0x40..=0x7E).contains(&last) {
                     break;
                 }
                 match poll_read_one(fd) {
@@ -597,15 +644,50 @@ fn read_one_key_native(fd: i32) -> ReadOutcome {
                     None => break,
                 }
             }
-        } else if len >= 2 && buf[1] == b'O' {
+            // X10 legacy mouse: a bare `ESC [ M` final (no parameter
+            // bytes) is followed by exactly three payload bytes
+            // (button, x, y — not final-byte terminated). Consume
+            // them with the sequence so they cannot surface as
+            // garbage Char events. SGR mouse (`ESC [ < ... M`) has
+            // parameter bytes and never matches this shape; `decode`
+            // reports the X10 frame as one Unknown event.
+            if len == seq + 2 && buf[seq + 1] == b'M' {
+                let target = (len + 3).min(buf.len());
+                while len < target {
+                    match poll_read_one(fd) {
+                        Some(b) => {
+                            buf[len] = b;
+                            len += 1;
+                        }
+                        None => break,
+                    }
+                }
+            }
+            // Oversized CSI: the frame filled before the final byte
+            // arrived. Drain the remainder up to the final byte so
+            // the tail cannot surface as garbage Char events on later
+            // calls — the truncated frame itself decodes as one
+            // Unknown. Bounded so a hostile unterminated stream
+            // cannot spin here forever.
+            if len == buf.len() && !(0x40..=0x7E).contains(&buf[len - 1]) {
+                let mut drained = 0usize;
+                while drained < 64 {
+                    match poll_read_one(fd) {
+                        Some(b) if (0x40..=0x7E).contains(&b) => break,
+                        Some(_) => drained += 1,
+                        None => break,
+                    }
+                }
+            }
+        } else if len > seq && buf[seq] == b'O' {
             // SS3: exactly one more byte (e.g. `ESC O P` for F1).
-            if len == 2
+            if len == seq + 1
                 && let Some(b) = poll_read_one(fd)
             {
                 buf[len] = b;
                 len += 1;
             }
-        } else if len >= 2 && buf[1] >= 0x80 {
+        } else if seq == 1 && len >= 2 && buf[1] >= 0x80 {
             // Alt + multi-byte UTF-8: pull the continuation bytes so
             // the character is not split across reads. (`decode`
             // reports this as Unknown, but as *one* event.)
@@ -708,7 +790,7 @@ fn build_pack(builder: &HostValueBuilder<'_>, decoded: DecodedKey) -> *mut Taida
         shift_name.as_ptr(),
     ];
     let values: [*mut TaidaAddonValueV1; 5] = [kind_v, text_v, ctrl_v, alt_v, shift_v];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Implementation backing the addon `readKey` entry point. The C ABI
@@ -1429,6 +1511,99 @@ mod framing_tests {
     #[test]
     fn read_one_key_keeps_alt_utf8_in_one_event() {
         let (rfd, wfd) = pipe_with("\u{1b}éz".as_bytes());
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::Unknown);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "z");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    // ── Ctrl chords outside the letter range ──────────────────────
+
+    #[test]
+    fn decode_nul_is_ctrl_space() {
+        let k = decode(&[0x00]);
+        assert_eq!(k.kind, KeyKind::Char);
+        assert_eq!(k.text, " ");
+        assert!(k.ctrl);
+        assert!(!k.alt);
+    }
+
+    #[test]
+    fn decode_c0_punctuation_bytes_are_ctrl_chords() {
+        for (byte, ch) in [(0x1Cu8, "\\"), (0x1D, "]"), (0x1E, "^"), (0x1F, "_")] {
+            let k = decode(&[byte]);
+            assert_eq!(k.kind, KeyKind::Char, "byte {byte:#04x}");
+            assert_eq!(k.text, ch, "byte {byte:#04x}");
+            assert!(k.ctrl, "byte {byte:#04x}");
+        }
+    }
+
+    // ── Alt-prefixed (ESC ESC) sequences ──────────────────────────
+
+    #[test]
+    fn decode_esc_esc_csi_is_alt_arrow() {
+        let k = decode(b"\x1b\x1b[A");
+        assert_eq!(k.kind, KeyKind::ArrowUp);
+        assert!(k.alt);
+        assert!(!k.ctrl);
+    }
+
+    #[test]
+    fn decode_esc_esc_alone_is_alt_escape() {
+        let k = decode(&[0x1B, 0x1B]);
+        assert_eq!(k.kind, KeyKind::Escape);
+        assert!(k.alt);
+    }
+
+    /// Alt+Arrow arrives as `ESC ESC [ A`; the whole prefixed
+    /// sequence must frame as one event (it used to decode as Unknown
+    /// with the tail surfacing as `Char('[')` / `Char('A')`).
+    #[test]
+    fn read_one_key_assembles_alt_prefixed_arrow() {
+        let (rfd, wfd) = pipe_with(b"\x1b\x1b[Ax");
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::ArrowUp);
+        assert!(first.alt);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "x");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    // ── X10 legacy mouse + oversized CSI framing ──────────────────
+
+    /// A bare `ESC [ M` final carries three payload bytes; they must
+    /// be consumed with the frame (one Unknown event), not surface as
+    /// garbage Char events before the next real key.
+    #[test]
+    fn read_one_key_consumes_x10_mouse_payload() {
+        let (rfd, wfd) = pipe_with(b"\x1b[M !!q");
+        let first = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(first.kind, KeyKind::Unknown);
+        let second = expect_decoded(read_one_key_native(rfd));
+        assert_eq!(second.kind, KeyKind::Char);
+        assert_eq!(second.text, "q");
+        unsafe {
+            libc::close(rfd);
+            libc::close(wfd);
+        }
+    }
+
+    /// A CSI longer than the 16-byte frame is drained to its final
+    /// byte: the truncated frame decodes as one Unknown and the next
+    /// read starts at the next real event instead of the sequence
+    /// tail.
+    #[test]
+    fn read_one_key_drains_oversized_csi_to_its_final_byte() {
+        let (rfd, wfd) = pipe_with(b"\x1b[1;2;3;4;5;6;7;8;9Az");
         let first = expect_decoded(read_one_key_native(rfd));
         assert_eq!(first.kind, KeyKind::Unknown);
         let second = expect_decoded(read_one_key_native(rfd));

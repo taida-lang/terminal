@@ -161,12 +161,25 @@ static SIGWINCH_INIT: Mutex<()> = Mutex::new(());
 static OLD_SIGWINCH: AtomicPtr<libc::sigaction> = AtomicPtr::new(core::ptr::null_mut());
 
 /// Async-signal-safe access to the calling thread's errno slot.
+/// The release matrix is linux/macos/windows, but the BSDs spell the
+/// slot accessor differently — cover them so a source build does not
+/// silently read the wrong symbol.
 fn errno_slot() -> *mut libc::c_int {
-    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    #[cfg(any(target_os = "macos", target_os = "ios", target_os = "freebsd"))]
     unsafe {
         libc::__error()
     }
-    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
+    unsafe {
+        libc::__errno()
+    }
+    #[cfg(not(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
     unsafe {
         libc::__errno_location()
     }
@@ -196,15 +209,17 @@ extern "C" fn sigwinch_handler(sig: i32, info: *mut libc::siginfo_t, ucontext: *
     let errno = errno_slot();
     let saved_errno = unsafe { *errno };
 
-    // 1. Write to self-pipe (our own work).
-    let wfd = SIGWINCH_PIPE[1].load(Ordering::Relaxed);
+    // 1. Write to self-pipe (our own work). Acquire pairs with the
+    // installer's Release stores so the handler observes the fd (and
+    // the saved-old-handler box below) fully initialised.
+    let wfd = SIGWINCH_PIPE[1].load(Ordering::Acquire);
     if wfd >= 0 {
         let byte: u8 = b'W';
         unsafe { libc::write(wfd, &byte as *const u8 as *const _, 1) };
     }
 
     // 2. Chain to old handler (TMB-007).
-    let old_ptr = OLD_SIGWINCH.load(Ordering::Relaxed);
+    let old_ptr = OLD_SIGWINCH.load(Ordering::Acquire);
     if !old_ptr.is_null() {
         let old_sa = unsafe { &*old_ptr };
         let handler = old_sa.sa_sigaction;
@@ -466,8 +481,15 @@ pub fn decode_sgr_mouse(buf: &[u8]) -> Option<DecodedMouse> {
             (MouseKind::ScrollDown, 0i64)
         }
     } else if is_motion {
-        // Drag: motion with button held
-        (MouseKind::Drag, low_bits as i64)
+        if low_bits == 3 {
+            // Any-event tracking (1003) hover: motion with NO button
+            // held — the low bits carry the "no button" marker (3).
+            // This is a Move, not a Drag with a phantom button 3.
+            (MouseKind::Move, 0i64)
+        } else {
+            // Drag: motion with button held
+            (MouseKind::Drag, low_bits as i64)
+        }
     } else if is_release {
         (MouseKind::Up, low_bits as i64)
     } else {
@@ -923,7 +945,7 @@ fn build_event_pack(
         c"resize".as_ptr(),
     ];
     let values: [*mut TaidaAddonValueV1; 4] = [kind_v, key_sub, mouse_sub, resize_sub];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 fn build_key_subpack(builder: &HostValueBuilder<'_>, dk: &DecodedKey) -> *mut TaidaAddonValueV1 {
@@ -955,7 +977,7 @@ fn build_key_subpack(builder: &HostValueBuilder<'_>, dk: &DecodedKey) -> *mut Ta
         c"shift".as_ptr(),
     ];
     let values: [*mut TaidaAddonValueV1; 5] = [kind_v, text_v, ctrl_v, alt_v, shift_v];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 fn build_default_key_subpack(builder: &HostValueBuilder<'_>) -> *mut TaidaAddonValueV1 {
@@ -1010,7 +1032,7 @@ fn build_mouse_subpack(
     ];
     let values: [*mut TaidaAddonValueV1; 7] =
         [kind_v, col_v, row_v, button_v, ctrl_v, alt_v, shift_v];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 fn build_default_mouse_subpack(builder: &HostValueBuilder<'_>) -> *mut TaidaAddonValueV1 {
@@ -1046,7 +1068,7 @@ fn build_resize_subpack(
 
     let names: [*const c_char; 2] = [c"cols".as_ptr(), c"rows".as_ptr()];
     let values: [*mut TaidaAddonValueV1; 2] = [cols_v, rows_v];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 fn build_default_resize_subpack(builder: &HostValueBuilder<'_>) -> *mut TaidaAddonValueV1 {
@@ -1366,6 +1388,19 @@ mod tests {
         let buf = b"\x1b[<32;12;8M";
         let m = decode_sgr_mouse(buf).expect("should decode drag");
         assert_eq!(m.kind, MouseKind::Drag);
+        assert_eq!(m.col, 12);
+        assert_eq!(m.row, 8);
+        assert_eq!(m.button, 0);
+    }
+
+    #[test]
+    fn decode_sgr_mouse_hover_motion_is_move_not_drag() {
+        // Any-event tracking (1003) hover: bit 5 (32) + low bits 3
+        // ("no button") = 35. This is a Move — it used to come out as
+        // Drag with a phantom button 3.
+        let buf = b"\x1b[<35;12;8M";
+        let m = decode_sgr_mouse(buf).expect("should decode hover move");
+        assert_eq!(m.kind, MouseKind::Move);
         assert_eq!(m.col, 12);
         assert_eq!(m.row, 8);
         assert_eq!(m.button, 0);

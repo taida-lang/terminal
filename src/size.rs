@@ -168,7 +168,7 @@ fn build_pack(builder: &HostValueBuilder<'_>, cols: i64, rows: i64) -> *mut Taid
     let rows_name = c"rows";
     let names: [*const c_char; 2] = [cols_name.as_ptr(), rows_name.as_ptr()];
     let values: [*mut TaidaAddonValueV1; 2] = [cols_v, rows_v];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 // ── Public entry: terminal_size() over the addon ABI ─────────────

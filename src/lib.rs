@@ -27,6 +27,7 @@
 mod event;
 #[cfg(unix)]
 mod key;
+mod pack_util;
 #[cfg(unix)]
 mod raw_mode;
 #[cfg(unix)]
