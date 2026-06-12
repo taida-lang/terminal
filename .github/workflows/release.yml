@@ -247,6 +247,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: write
+      # Required by cosign for the keyless OIDC flow (SEC-011).
+      id-token: write
     env:
       RELEASE_TAG: ${{ needs.prepare.outputs.release_tag }}
     steps:
@@ -332,6 +334,41 @@ jobs:
           fi
           cat SHA256SUMS
 
+      # SEC-011: Sigstore keyless signing — same flow as the Taida core
+      # release workflow. Each asset (including SHA256SUMS) gets a
+      # `.cosign.bundle` next to it, signed with the ambient GitHub OIDC
+      # token; no long-lived key is stored anywhere. `taida ingot
+      # install` fetches `<lib>.cosign.bundle` next to the cdylib and
+      # verifies against the `^https://github.com/taida-lang/` identity,
+      # so publishing the bundles turns its per-install
+      # "cosign bundle missing" WARN into a verified OK.
+      - name: Install cosign
+        uses: sigstore/cosign-installer@f713795cb21599bc4e5c4b58cbad1da852d7eeb9 # v3
+        with:
+          cosign-release: v2.4.1
+
+      - name: Sign release assets (cosign keyless)
+        working-directory: dist
+        env:
+          COSIGN_YES: "true"
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in ./*; do
+              [ -f "${f}" ] || continue
+              case "${f}" in
+                  *.cosign.bundle|*.sig) continue ;;
+              esac
+              echo "::group::sign ${f}"
+              cosign sign-blob \
+                  --bundle "${f}.cosign.bundle" \
+                  --yes \
+                  "${f}"
+              echo "::endgroup::"
+          done
+          echo "Signed assets:"
+          ls -la ./*.cosign.bundle
+
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -346,6 +383,7 @@ jobs:
           - \`addon.lock.toml\` (SHA-256 aggregated from the build matrix)
           - \`prebuild-targets.toml.txt\` (drop-in fragment for \`native/addon.toml\`)
           - \`SHA256SUMS\`
+          - \`.cosign.bundle\` Sigstore signatures for every asset (keyless, GitHub OIDC)
 
           Release author: \`github-actions[bot]\`.
 

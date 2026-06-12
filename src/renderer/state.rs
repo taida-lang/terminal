@@ -608,7 +608,7 @@ pub fn build_style(
         builder.bool(style.underline),
         builder.bool(style.italic),
     ];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Build the 7-field cell pack.
@@ -631,7 +631,7 @@ pub fn build_cell(builder: &HostValueBuilder, cell: &Cell) -> *mut taida_addon::
         builder.bool(cell.style.underline),
         builder.bool(cell.style.italic),
     ];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Build the 6-field `ScreenBuffer` pack.
@@ -663,7 +663,7 @@ pub fn build_buffer(
         builder.int(buf.cursor_row),
         builder.bool(buf.cursor_visible),
     ];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 // ── DiffOp parsing / building ─────────────────────────────────────
@@ -726,7 +726,7 @@ pub fn build_diff_op(
         builder.str(&op.text),
         style,
     ];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Build the `BufferDiff` result pack: `@(ops <= @[...], requires_full <= Bool)`.
@@ -743,7 +743,7 @@ pub fn build_diff_result(
 
     let names: [*const c_char; 2] = [FIELD_OPS.as_ptr(), FIELD_REQUIRES_FULL.as_ptr()];
     let values = [ops_list, builder.bool(requires_full)];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Build the `RenderFrame` result pack: `@(text <= Str, next <= ScreenBuffer)`.
@@ -755,7 +755,7 @@ pub fn build_frame_result(
     let next_pack = build_buffer(builder, next);
     let names: [*const c_char; 2] = [FIELD_TEXT.as_ptr(), FIELD_NEXT.as_ptr()];
     let values = [builder.str(text), next_pack];
-    builder.pack(&names, &values)
+    crate::pack_util::pack_or_release(builder, &names, &values)
 }
 
 /// Parse a `DiffOp` list (the `ops` argument to `RenderOps`).

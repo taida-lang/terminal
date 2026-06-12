@@ -31,11 +31,12 @@ use taida_addon::{TaidaAddonErrorV1, TaidaAddonStatus, TaidaAddonValueV1, TaidaH
 
 use windows_sys::Win32::Foundation::{HANDLE, INVALID_HANDLE_VALUE};
 use windows_sys::Win32::System::Console::{
-    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_MOUSE_INPUT,
-    ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
-    ENABLE_WINDOW_INPUT, GetConsoleMode, GetConsoleScreenBufferInfo, GetStdHandle, INPUT_RECORD,
-    KEY_EVENT, MOUSE_EVENT, ReadConsoleInputW, STD_ERROR_HANDLE, STD_INPUT_HANDLE,
-    STD_OUTPUT_HANDLE, SetConsoleMode, WINDOW_BUFFER_SIZE_EVENT,
+    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_ECHO_INPUT, ENABLE_EXTENDED_FLAGS, ENABLE_LINE_INPUT,
+    ENABLE_MOUSE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_QUICK_EDIT_MODE,
+    ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
+    GetConsoleMode, GetConsoleScreenBufferInfo, GetStdHandle, INPUT_RECORD, KEY_EVENT, MOUSE_EVENT,
+    ReadConsoleInputW, STD_ERROR_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE, SetConsoleMode,
+    WINDOW_BUFFER_SIZE_EVENT,
 };
 
 // ── VT mode initialization (TM-6a) ─────────────────────────────
@@ -403,11 +404,19 @@ pub fn raw_mode_enter_impl(
     // ReadConsoleInputW never receives WINDOW_BUFFER_SIZE_EVENT /
     // MOUSE_EVENT records, leaving readEvent's Resize and Mouse
     // decode branches unreachable.
+    // ENABLE_EXTENDED_FLAGS makes the QUICK_EDIT clear effective —
+    // without the pair, legacy conhost keeps QuickEdit active and
+    // swallows mouse input into its selection gesture, so MOUSE_EVENT
+    // records never reach ReadConsoleInputW.
     let raw_mode = (current_mode
-        & !(ENABLE_ECHO_INPUT | ENABLE_LINE_INPUT | ENABLE_PROCESSED_INPUT))
+        & !(ENABLE_ECHO_INPUT
+            | ENABLE_LINE_INPUT
+            | ENABLE_PROCESSED_INPUT
+            | ENABLE_QUICK_EDIT_MODE))
         | ENABLE_VIRTUAL_TERMINAL_INPUT
         | ENABLE_WINDOW_INPUT
-        | ENABLE_MOUSE_INPUT;
+        | ENABLE_MOUSE_INPUT
+        | ENABLE_EXTENDED_FLAGS;
 
     if unsafe { SetConsoleMode(handle, raw_mode) } == 0 {
         let err = builder.error(
@@ -642,8 +651,13 @@ fn utf16_unit_to_text(unit: u16, pending_high: &mut Option<u16>) -> Option<Strin
             None => String::from_utf16_lossy(&[unit]),
         }
     } else {
-        *pending_high = None;
-        String::from_utf16_lossy(&[unit])
+        match pending_high.take() {
+            // Orphan HIGH half: lossy conversion renders it U+FFFD in
+            // front of the new unit, exactly like the orphan-low path
+            // above — it used to be dropped without a trace.
+            Some(high) => String::from_utf16_lossy(&[high, unit]),
+            None => String::from_utf16_lossy(&[unit]),
+        }
     };
     Some(text)
 }
@@ -973,6 +987,26 @@ pub fn read_event_impl(
     }
 }
 
+/// A non-key record that interrupted a surrogate pair, parked so the
+/// next `readEvent` call replays it after the orphan half has been
+/// surfaced (`ReadConsoleInputW` consumes records — they cannot be
+/// pushed back to the console queue).
+static STASHED_RECORD: Mutex<Option<INPUT_RECORD>> = Mutex::new(None);
+
+fn take_stashed_record() -> Option<INPUT_RECORD> {
+    match STASHED_RECORD.lock() {
+        Ok(mut g) => g.take(),
+        Err(p) => p.into_inner().take(),
+    }
+}
+
+fn stash_record(record: INPUT_RECORD) {
+    match STASHED_RECORD.lock() {
+        Ok(mut g) => *g = Some(record),
+        Err(p) => *p.into_inner() = Some(record),
+    }
+}
+
 fn read_event_loop(
     handle: HANDLE,
     builder: &HostValueBuilder<'_>,
@@ -981,29 +1015,58 @@ fn read_event_loop(
 ) -> TaidaAddonStatus {
     let mut pending_high: Option<u16> = None;
     loop {
-        let mut record: INPUT_RECORD = unsafe { core::mem::zeroed() };
-        let mut count: u32 = 0;
+        // Replay a record parked by a surrogate-interruption return
+        // before pulling new input from the console.
+        let record: INPUT_RECORD = if let Some(stashed) = take_stashed_record() {
+            stashed
+        } else {
+            let mut record: INPUT_RECORD = unsafe { core::mem::zeroed() };
+            let mut count: u32 = 0;
 
-        if unsafe { ReadConsoleInputW(handle, &mut record, 1, &mut count) } == 0 {
-            let err = builder.error(
-                event_err::READ_EVENT_READ_FAILED,
-                "ReadEventReadFailed: ReadConsoleInputW failed",
-            );
-            if !out_error.is_null() {
-                unsafe { *out_error = err };
+            if unsafe { ReadConsoleInputW(handle, &mut record, 1, &mut count) } == 0 {
+                let err = builder.error(
+                    event_err::READ_EVENT_READ_FAILED,
+                    "ReadEventReadFailed: ReadConsoleInputW failed",
+                );
+                if !out_error.is_null() {
+                    unsafe { *out_error = err };
+                }
+                return TaidaAddonStatus::Error;
             }
-            return TaidaAddonStatus::Error;
-        }
 
-        if count == 0 {
-            let err = builder.error(
-                event_err::READ_EVENT_EOF,
-                "ReadEventEof: no input available",
-            );
-            if !out_error.is_null() {
-                unsafe { *out_error = err };
+            if count == 0 {
+                let err = builder.error(
+                    event_err::READ_EVENT_EOF,
+                    "ReadEventEof: no input available",
+                );
+                if !out_error.is_null() {
+                    unsafe { *out_error = err };
+                }
+                return TaidaAddonStatus::Error;
             }
-            return TaidaAddonStatus::Error;
+            record
+        };
+
+        // A non-key record arriving while half a surrogate pair is
+        // pending would drop the high half with this call's stack
+        // frame. Surface the orphan as U+FFFD first (its input
+        // position precedes the interrupter) and replay the record on
+        // the next call.
+        if record.EventType as u32 != KEY_EVENT && pending_high.take().is_some() {
+            stash_record(record);
+            let key_sub =
+                build_key_subpack(builder, key_kind::CHAR, "\u{FFFD}", false, false, false);
+            let mouse_sub = build_default_mouse_subpack(builder);
+            let resize_sub = build_default_resize_subpack(builder);
+            return build_event_pack(
+                builder,
+                event_kind::KEY,
+                key_sub,
+                mouse_sub,
+                resize_sub,
+                out_value,
+                out_error,
+            );
         }
 
         match record.EventType as u32 {

@@ -6,6 +6,79 @@ Taida packages use a tag-based release scheme (`@a.1`, `@a.2`, ...). Rust
 `Cargo.toml` version is intentionally held at `1.0.0`; the authoritative
 release identity is the Taida package tag in `packages.tdm`.
 
+## [@f.10] -- 2026-06-12
+
+Renderer output efficiency, input decoding coverage, and signed
+release assets.
+
+### Fixed
+
+- **Wide glyphs no longer shift the rest of the row.** Both the full
+  render and diff ops used to emit the wide cell's trailing
+  placeholder space as its own cell write; the glyph itself already
+  advances the terminal cursor two columns, so everything after it
+  in the row drifted one column to the right. The placeholder is now
+  consumed with its lead cell everywhere.
+- **`readKey` decodes Alt-prefixed sequences.** Terminals send
+  Alt+Arrow as `ESC ESC [ A`; the pair used to decode as Unknown with
+  the tail surfacing as garbage `Char('[')` / `Char('A')` events. The
+  whole prefixed sequence now frames as one event with `alt` set.
+- **`readKey` consumes X10 legacy mouse payloads.** A bare `ESC [ M`
+  final carries three payload bytes that are not final-byte
+  terminated; they used to surface as garbage `Char` events. The
+  frame is consumed as one Unknown event (SGR mouse reporting is
+  unaffected).
+- **Oversized CSI sequences are drained to their final byte** instead
+  of leaking their tail into later reads as garbage events.
+- **`Ctrl+Space` and `Ctrl+\` `Ctrl+]` `Ctrl+^` `Ctrl+_` are
+  detectable.** NUL and the C0 bytes above the letter range now decode
+  as `Char` events with `ctrl` set, like every other Ctrl chord.
+- **`readEvent` classifies hover motion as `Move`.** Under any-event
+  tracking (mode 1003), motion without a button held (`Pb = 35`) used
+  to come out as `Drag` with a phantom button 3.
+- **Windows: orphan high surrogates surface as U+FFFD** instead of
+  being dropped silently (doc parity with the orphan-low path), **a
+  mouse event interrupting a surrogate pair no longer destroys the
+  pending half** (the interrupting record is replayed on the next
+  call), and **legacy conhost QuickEdit is cleared** on the
+  mouse-enabled raw mode so mouse input reaches the application
+  instead of the console's selection gesture.
+- **Pack-construction failures no longer leak their children.** Every
+  entry point now rolls back the child values when the host fails to
+  assemble the return pack, matching the contract the Windows key path
+  already followed.
+- SIGWINCH handler reads of the self-pipe fd and the saved old-handler
+  pointer upgraded from `Relaxed` to `Acquire`; the errno slot
+  accessor covers the BSDs (`__error` / `__errno`).
+
+### Changed
+
+- **Styled output is run-length coalesced.** Contiguous same-style
+  cells render as one `<SGR>text<reset>` run instead of per-cell SGR
+  pairs — a fully styled screen costs roughly a ninth of the bytes,
+  which matters over ssh and on slow terminals.
+- **`bufferDiff` coalesces adjacent same-style changes into a single
+  `Write` op**, and a wide lead + placeholder pair diffs as one unit
+  whose op carries the lead glyph only. A single changed cell still
+  produces a single op; code that assumed one op per changed cell for
+  multi-cell edits should consume ops by their `col`/`row`/`text`
+  fields rather than by count.
+
+### Added
+
+- **Release assets are signed.** Every asset (cdylibs, lockfile
+  fragments, `SHA256SUMS`) ships with a Sigstore keyless
+  `.cosign.bundle` produced by the release workflow via GitHub OIDC
+  — `taida ingot install`'s signature verification now reports
+  verified instead of warning about a missing bundle.
+
+### Compatibility
+
+- ABI unchanged (`abi = 1`). No source-breaking facade changes. The
+  ANSI byte stream emitted for styled or wide-glyph content differs
+  from `@f.9` as described above; tests that assert exact ANSI output
+  may need their expectations refreshed.
+
 ## [@f.9] -- 2026-06-11
 
 Compatibility release for current Taida, plus a hardening pass over the
